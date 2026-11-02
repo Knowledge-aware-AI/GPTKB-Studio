@@ -68,13 +68,12 @@ def _page(title: str, header: str, body: str, extra_scripts: str = "") -> str:
 """
 
 
-def _bar_chart(title: str, subtitle: str, rows: list[tuple[str, int]], slots: int | None = None) -> str:
-    """A horizontal bar chart; `slots` reserves room for that many bars, so
-    charts with fewer rows still come out the same size as their neighbours."""
+def _bar_chart(title: str, subtitle: str, rows: list[tuple[str, int]]) -> str:
+    """A horizontal bar chart, as tall as its bars."""
     if not rows:
         return ""
     chart_w, label_w, row_h, bar_h, top = 760, 220, 26, 15, 56
-    height = top + max(len(rows), slots or 0) * row_h + 12
+    height = top + len(rows) * row_h + 12
     max_val = max(value for _, value in rows) or 1
     bar_max = chart_w - label_w - 70
     bars = []
@@ -316,17 +315,16 @@ class ReportWriter:
             "GROUP BY it.concept_id ORDER BY n DESC LIMIT 10"
         ).fetchall()
         depth_rows = self.db.execute("SELECT depth, COUNT(*) FROM entities GROUP BY depth ORDER BY depth").fetchall()
-        # Full width, one after another, all the same size.
-        slots = max(len(top_relations), len(top_classes), len(depth_rows), 1)
+        # Full width, one after another, each as tall as its bars.
         charts = "".join(
             f'<section class="band">{chart}</section>'
             for chart in (
                 _bar_chart("Top Relations", "Most frequent relations after disambiguation.",
-                           [(l, n) for l, n in top_relations], slots),
+                           [(l, n) for l, n in top_relations]),
                 _bar_chart("Top Classes", "Most common classes (instanceOf objects).",
-                           [(l, n) for l, n in top_classes], slots),
+                           [(l, n) for l, n in top_classes]),
                 _bar_chart("BFS Depth Reached", "Entities discovered at each hop from the seed.",
-                           [(f"Depth {d}", n) for d, n in depth_rows], slots),
+                           [(f"Depth {d}", n) for d, n in depth_rows]),
             )
             if chart
         )
