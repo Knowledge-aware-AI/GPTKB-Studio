@@ -479,6 +479,15 @@ class DisambiguatedKBCRunner:
             }
         )
 
+    def _maybe_write_report(self) -> None:
+        """Rewrites the report every REPORT_INTERVAL_SECONDS also in the middle
+        of a long round (one round can take minutes when many items wait for
+        rate-limited disambiguation). Called on the loop thread only, between
+        model answers, so the report reads a consistent database."""
+        if time.monotonic() - self._last_report >= REPORT_INTERVAL_SECONDS:
+            self.report.write()
+            self._last_report = time.monotonic()
+
     # ---- main loop ---------------------------------------------------------
 
     def run(self) -> None:
@@ -639,6 +648,7 @@ class DisambiguatedKBCRunner:
                         except Exception as exc:
                             yield item, None, exc
                     self._emit_status("running")
+                    self._maybe_write_report()
             except StopRequested:
                 for future in pending:
                     future.cancel()
