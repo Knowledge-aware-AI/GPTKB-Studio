@@ -95,7 +95,7 @@ def _pipeline_of(config: Any) -> str:
         return str(config["pipeline"])
     return CLASSIC_PIPELINE
 
-app = FastAPI(title="miniGPTKB UI")
+app = FastAPI(title="GPTKB Studio")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/runs", StaticFiles(directory=RUNS_DIR), name="runs")
 
@@ -1641,7 +1641,7 @@ def download_run(run_id: str) -> Response:
     run_dir = _resolve_run_dir(run_id)
     if not run_dir.exists() or not run_dir.is_dir():
         raise HTTPException(status_code=404, detail="Run not found.")
-    return _zip_response(run_dir, f"minigptkb-{run_id}.zip")
+    return _zip_response(run_dir, f"gptkb-studio-{run_id}.zip")
 
 
 LOG_REPLAY_LINES = 500

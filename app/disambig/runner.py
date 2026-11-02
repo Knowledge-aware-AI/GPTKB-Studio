@@ -1,5 +1,5 @@
 """GPTKB 2.0 knowledge base construction with on-the-fly disambiguation,
-as a miniGPTKB run (Hu, Nguyen & Razniewski, "Constructing Disambiguated
+as a GPTKB Studio run (Hu, Nguyen & Razniewski, "Constructing Disambiguated
 Knowledge Bases from Large Language Models at Scale", arXiv:2608.03729).
 
 A port of the single-request mode of `Constructor.loop` in
@@ -16,7 +16,7 @@ the same guarded parallelization (pending object labels are clustered and
 only one per cluster is disambiguated per round, unless its label has been
 resolved more than 50 times already), and the same duplicate-triple handling.
 
-What is miniGPTKB's rather than GPTKB 2.0's: the elicitation prompt (topic-
+What is GPTKB Studio's rather than GPTKB 2.0's: the elicitation prompt (topic-
 scoped, multilingual, editable -- plus GPTKB 2.0's subject description line),
 the endpoints/models (any OpenAI-compatible Chat Completions server, one model
 each for elicitation, NER and NED), BFS depth tracking, the stopping criteria,

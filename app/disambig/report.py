@@ -1,4 +1,4 @@
-"""HTML report of a disambiguated miniGPTKB run: an index page with run
+"""HTML report of a disambiguated GPTKB Studio run: an index page with run
 statistics (including how many surface labels were consolidated into how
 many entities, and which labels denote several distinct entities) plus one
 page per entity, named by its id (E12.html) since labels are not unique."""
@@ -407,7 +407,7 @@ class ReportWriter:
             + _json_island("graph-edges-data", edges)
             + _json_island("triple-data", [list(t) for t in triples])
         )
-        html = _page(f"{config.seed_entity} — miniGPTKB", header, body, scripts)
+        html = _page(f"{config.seed_entity} — GPTKB Studio", header, body, scripts)
         (self.html_dir / "index.html").write_text(html, encoding="utf-8")
 
     def _graph(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
@@ -592,7 +592,7 @@ class ReportWriter:
 {''.join(in_rows) or '<tr><td colspan="3">No incoming triples yet.</td></tr>'}</tbody></table></div></section>
 {decisions_html}
 {homonym_html}"""
-        html = _page(f"{label} ({entity_id}) — miniGPTKB", header, body)
+        html = _page(f"{label} ({entity_id}) — GPTKB Studio", header, body)
         (self.html_dir / f"{entity_id}.html").write_text(html, encoding="utf-8")
 
     # ---- flat export ---------------------------------------------------------

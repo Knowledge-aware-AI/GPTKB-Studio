@@ -1,4 +1,4 @@
-# Versions miniGPTKB is tested with (compatible minor/patch updates allowed).
+# Versions GPTKB Studio is tested with (compatible minor/patch updates allowed).
 fastapi~=0.115.11
 uvicorn[standard]~=0.32.0
 openai~=1.69

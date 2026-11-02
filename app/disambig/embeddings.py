@@ -4,7 +4,7 @@ GPTKB 2.0 runs Qwen3-Embedding-4B locally (sentence-transformers,
 truncate_dim=1024) with a faiss HNSW index per element kind. This host has no
 GPU and too little memory for that, so the same model is called through the
 ScaDS.AI OpenAI-compatible /v1/embeddings endpoint instead, truncated to the
-same 1024 dimensions and re-normalized. A miniGPTKB holds thousands, not
+same 1024 dimensions and re-normalized. A GPTKB Studio run holds thousands, not
 millions, of elements, so exact brute-force cosine search over an in-memory
 numpy matrix replaces the approximate faiss index.
 """

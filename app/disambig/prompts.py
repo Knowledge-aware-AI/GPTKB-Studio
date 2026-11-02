@@ -7,7 +7,7 @@ messages and parsers below mirror that repo's prompter_parser/prompt_schema.py
 -- adapted from its Responses-API request bodies to plain chat messages, since
 this app talks to any OpenAI-compatible Chat Completions endpoint.
 
-Elicitation is the one exception: it keeps miniGPTKB's own topic-scoped,
+Elicitation is the one exception: it keeps the miniGPTKB method's topic-scoped,
 multilingual prompt (app.runner.build_elicitation_prompt*), extended with
 GPTKB 2.0's "Description of subject" line so homonymous subjects are elicited
 as the entity they actually denote.
@@ -142,7 +142,7 @@ def ned1_messages(subject: str, predicate: str, obj: str, labels: list[str], des
     return NED1_SYSTEM, user
 
 
-# miniGPTKB addition to GPTKB 2.0's description prompts (NEDG, PDG, CDG):
+# GPTKB Studio addition to GPTKB 2.0's description prompts (NEDG, PDG, CDG):
 # a topic-specific KB knows what its elements are about, and without it a
 # description written from one triple is often a guess about some other
 # namesake (e.g. a sitcom character described as an unrelated actress),
@@ -234,7 +234,7 @@ def _first_json_value(text: str) -> Any:
 
 
 def parse_elicitation(text: str) -> list[dict[str, str]]:
-    """Accepts miniGPTKB's {"s","p","o"} list (what its prompt asks for) as
+    """Accepts GPTKB Studio's {"s","p","o"} list (what its prompt asks for) as
     well as GPTKB 2.0's {"facts": [{"subject","predicate","object"}]}."""
     data = _first_json_value(text)
     if isinstance(data, dict):
@@ -277,7 +277,7 @@ def _unique_letter(text: str, letters: str) -> str | None:
     return matches.pop() if len(matches) == 1 else None
 
 
-# miniGPTKB fallback, used only where GPTKB 2.0's rule finds no unique
+# GPTKB Studio fallback, used only where GPTKB 2.0's rule finds no unique
 # letter: models that explain their choice ("Rajesh is a character, so the
 # answer is D") contain other capital letters -- including the article "a",
 # which the rule uppercases -- and would otherwise be read as "None of above".

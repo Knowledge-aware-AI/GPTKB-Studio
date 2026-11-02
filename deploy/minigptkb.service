@@ -1,10 +1,10 @@
-# Example systemd unit for a hosted miniGPTKB instance.
+# Example systemd unit for a hosted GPTKB Studio instance.
 # Copy to /etc/systemd/system/, adjust User and WorkingDirectory, then:
 #   sudo systemctl daemon-reload && sudo systemctl enable --now minigptkb
 # Put it behind a reverse proxy (e.g. nginx) for public access; the app
 # itself listens on localhost only.
 [Unit]
-Description=miniGPTKB
+Description=GPTKB Studio
 After=network.target
 
 [Service]

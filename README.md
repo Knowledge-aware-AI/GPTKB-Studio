@@ -1,8 +1,8 @@
-# miniGPTKB
+# GPTKB Studio
 
-miniGPTKB is a web application for building small, topic-specific knowledge
+GPTKB Studio is a web application for building small, topic-specific knowledge
 bases from what a large language model knows. You choose a topic, a seed
-entity and a model; miniGPTKB asks the model for facts about the seed as
+entity and a model; GPTKB Studio asks the model for facts about the seed as
 subject–predicate–object triples, recognizes the named entities among the
 objects, decides whether each one is an entity it already has or a new one,
 and then asks about the new ones, round after round, until nothing new is left
@@ -59,7 +59,8 @@ Candidates are retrieved by label embedding (Qwen3-Embedding-4B). The state of
 a run lives in `runs/<run id>/knowledgeBase.db`, which is also its export and
 what a resumed run continues from.
 
-The original miniGPTKB crawler, which identifies entities by their names, is
+The original crawler, which identifies entities by their names as in the
+miniGPTKB method it grew out of, is
 kept in `app/runner.py`; runs made with it stay viewable and resumable, and new
 ones can be started through the API with `"pipeline": "classic"`.
 
@@ -75,10 +76,10 @@ python -m uvicorn app.server:app --host 127.0.0.1 --port 8000
 Then open <http://127.0.0.1:8000>.
 
 > **Embeddings need a ScaDS.AI key.** Disambiguation retrieves its candidates
-> with the embedding model Qwen3-Embedding-4B, which miniGPTKB calls on the
+> with the embedding model Qwen3-Embedding-4B, which GPTKB Studio calls on the
 > ScaDS.AI inference service with the key in `SCADS_API_KEY`, whatever endpoint
 > the language models use. Without that key, runs with disambiguation fail. To
-> run miniGPTKB without one, point the embeddings to another OpenAI-compatible
+> run GPTKB Studio without one, point the embeddings to another OpenAI-compatible
 > embeddings endpoint (e.g. Qwen3-Embedding-4B served locally with vLLM or
 > Ollama): the endpoint and model are set in `app/disambig/runner.py`
 > (`SCADS_EMBEDDING_URL`, `DEFAULT_EMBEDDING_MODEL`) and the key in
@@ -113,7 +114,7 @@ instance.
 
 ## License
 
-miniGPTKB is released under the
+GPTKB Studio is released under the
 [Creative Commons Attribution 4.0 International](LICENSE) license.
 
 The prompts in `app/disambig/prompts/` are taken from the GPTKB 2.0 repository

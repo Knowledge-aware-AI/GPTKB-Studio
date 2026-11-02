@@ -1,10 +1,10 @@
-"""SQLite schema of a disambiguated miniGPTKB run (knowledgeBase.db).
+"""SQLite schema of a disambiguated GPTKB Studio run (knowledgeBase.db).
 
 Mirrors GPTKB 2.0's data model (db/db_models.py): entities ("instance
 nodes"), predicates and concepts (classes) are first-class elements with ids,
 a label and a description, and triples move through the pipeline by status.
 The same file is the run's working state (a run resumes from it) and its
-downloadable export, so it also carries miniGPTKB's `run` metadata table and
+downloadable export, so it also carries GPTKB Studio's `run` metadata table and
 a log of every disambiguation decision for the HTML report.
 """
 

@@ -1235,7 +1235,7 @@ class LocalKBCRunner:
 <tr><th>Subject</th><th>Predicate</th><th>Object</th></tr>
 {incoming_rows}
 </table>
-<div class="footer">miniGPTKB HTML Collection</div>
+<div class="footer">GPTKB Studio HTML Collection</div>
 </body>
 </html>
 """
@@ -1713,7 +1713,7 @@ class LocalKBCRunner:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{seed} &mdash; miniGPTKB</title>
+<title>{seed} &mdash; GPTKB Studio</title>
 <style>
     :root {{
         --ink:#1f2937; --muted:#5b6472; --line:#d8dee7; --paper:#f8f9fa; --panel:#ffffff; --panel-2:#f3f6f8;
@@ -1809,7 +1809,7 @@ class LocalKBCRunner:
 <header>
 <div class="header-inner">
 <div class="header-top">
-<div class="eyebrow">miniGPTKB HTML Collection</div>
+<div class="eyebrow">GPTKB Studio HTML Collection</div>
 <div class="header-actions">
 <a class="download-button" href="/api/runs/{run_id}/download" download>&#8681; Download results</a>
 <div class="theme-toggle" id="themeToggle">
@@ -1987,7 +1987,7 @@ class LocalKBCRunner:
 </script>
 <script>
 (function () {{
-    // Same storage key as the miniGPTKB control panel (same origin), so a
+    // Same storage key as the GPTKB Studio control panel (same origin), so a
     // theme choice made in one place is remembered in the other too.
     var root = document.documentElement;
     var opts = document.querySelectorAll('#themeToggle button');

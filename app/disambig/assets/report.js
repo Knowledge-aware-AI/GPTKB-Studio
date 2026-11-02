@@ -1,6 +1,6 @@
-// Shared script of the disambiguated miniGPTKB HTML report (index and entity pages).
+// Shared script of the disambiguated GPTKB Studio HTML report (index and entity pages).
 (function () {
-    // Theme toggle -- same storage key as the miniGPTKB control panel (same
+    // Theme toggle -- same storage key as the GPTKB Studio control panel (same
     // origin), so a choice made in one place is remembered in the other.
     var root = document.documentElement;
     var STORAGE_KEY = 'miniGPTKB.theme';
