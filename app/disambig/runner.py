@@ -52,7 +52,7 @@ from app.runner import (
     get_reasoning_capability,
     resolve_reasoning_settings,
 )
-from app import reasoning
+from app import endpoints, reasoning
 from app.disambig import prompts as P
 from app.disambig import store as S
 from app.disambig.embeddings import EmbeddingClient, VectorIndex, cluster_labels
@@ -215,7 +215,8 @@ class LLMClient:
                 timeout = config.request_timeout_seconds
                 if key == OPENAI_URL:
                     timeout = max(timeout, 300.0)  # GPT-5 models can take minutes
-                self.endpoints[key] = Endpoint(url, api_key, OpenAI(base_url=url, api_key=api_key, timeout=timeout, max_retries=0))
+                self.endpoints[key] = Endpoint(url, api_key, OpenAI(
+                    base_url=url, api_key=api_key, timeout=timeout, max_retries=0, http_client=endpoints.http_client()))
             self.role_endpoint[role] = self.endpoints[key]
         self.rate_limiter = RequestRateLimiter(config.max_requests_per_minute)
         self.throttle = ModelThrottle(log, enabled=config.pacing)

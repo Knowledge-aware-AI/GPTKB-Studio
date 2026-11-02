@@ -18,7 +18,7 @@ A hosted instance runs at <http://gptkbstudio.scads.ai/>.
 ## Features
 
 - **Any model, any OpenAI-compatible endpoint:** presets for ScaDS.AI, OpenAI
-  and OpenRouter, or a custom URL (e.g. a self-hosted vLLM server). One model
+  and OpenRouter, or a custom URL (e.g. a self-hosted vLLM server; on a local network only with `MINIGPTKB_ALLOW_PRIVATE_ENDPOINTS=1`). One model
   does all three tasks (fact elicitation, named entity recognition,
   disambiguation) unless NER and NED are given models of their own under
   *Advanced*.
@@ -92,6 +92,7 @@ Environment variables:
 |---|---|
 | `SCADS_API_KEY` | Key for the ScaDS.AI inference service. Used for label embeddings, and for model calls on ScaDS.AI when the user leaves the API key field empty. Runs on this shared key without a runtime limit stop after 60 minutes. |
 | `MINIGPTKB_RUNS_DIR` | Where run folders are kept (default: `runs/`). |
+| `MINIGPTKB_ALLOW_PRIVATE_ENDPOINTS` | Set to `1` to allow model endpoints on private, loopback or link-local addresses (e.g. a model served with vLLM or Ollama on the same machine). By default such endpoints are refused, so that users of a hosted instance cannot make the server call its own network. |
 
 API keys that users enter in the form are passed to the run in memory only:
 they are never written to disk, and they are sent only to the endpoint they

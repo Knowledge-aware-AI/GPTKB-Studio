@@ -20,6 +20,7 @@ from urllib.parse import quote
 
 from openai import OpenAI, RateLimitError
 
+from app import endpoints
 from app.usage import UsageCounter
 
 
@@ -574,6 +575,7 @@ class LocalKBCRunner:
             base_url=config.llm_url,
             api_key=config.api_key,
             timeout=client_timeout,
+            http_client=endpoints.http_client(),
         )
         self.rate_limiter = RequestRateLimiter(config.max_requests_per_minute)
         self.usage = UsageCounter(run_dir / "usage.json")

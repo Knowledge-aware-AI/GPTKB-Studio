@@ -37,6 +37,8 @@ from typing import Any
 
 from openai import APIConnectionError, APIStatusError, AuthenticationError, BadRequestError, OpenAI, RateLimitError
 
+from app import endpoints
+
 ROOT = Path(__file__).resolve().parent.parent
 CACHE_PATH = Path(os.environ.get("MINIGPTKB_RUNS_DIR") or ROOT / "runs") / "_reasoning_capabilities.json"
 CACHE_TTL_SECONDS = 24 * 3600
@@ -130,7 +132,8 @@ def capability_for(llm_url: str, api_key: str | None, model: str) -> dict[str, A
         found, capability = cached_capability(url, model)
         if found:
             return capability
-        client = OpenAI(base_url=llm_url.strip().rstrip("/"), api_key=api_key, timeout=90.0, max_retries=1)
+        client = OpenAI(base_url=llm_url.strip().rstrip("/"), api_key=api_key, timeout=90.0, max_retries=1,
+                        http_client=endpoints.http_client())
         try:
             capability = _probe_openai(client, model) if url == OPENAI_URL else _probe_generic(client, model)
         except ProbeUnavailable:

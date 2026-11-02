@@ -34,6 +34,7 @@ from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
+from app import endpoints
 from app.runner import (
     KBCConfig,
     LocalKBCRunner,
@@ -222,6 +223,16 @@ def _resolve_api_key(llm_url: str, api_key: str) -> str:
     if llm_url.strip().rstrip("/").lower() == SCADS_ENDPOINT:
         return _require_scads_key()
     return api_key
+
+
+def _check_endpoint(url: str) -> None:
+    """Refuses endpoints on private, loopback or link-local addresses (see
+    app/endpoints.py), so user-entered URLs cannot reach the server's own
+    network."""
+    try:
+        endpoints.check_url(url)
+    except endpoints.EndpointNotAllowed as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _require_scads_key() -> str:
@@ -463,10 +474,11 @@ def prompt_preview(request: PromptPreviewRequest) -> dict[str, Any]:
 def list_models(request: ModelsRequest) -> dict[str, Any]:
     if request.llm_url.strip().rstrip("/").lower() == "https://openrouter.ai/api/v1":
         return _list_openrouter_models(request)
+    _check_endpoint(request.llm_url)
 
     try:
         api_key = _resolve_api_key(request.llm_url, request.api_key)
-        client = OpenAI(base_url=request.llm_url, api_key=api_key, timeout=15.0)
+        client = OpenAI(base_url=request.llm_url, api_key=api_key, timeout=15.0, http_client=endpoints.http_client())
         response = client.models.list()
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Could not list models: {exc}") from exc
@@ -523,6 +535,10 @@ def reasoning_capability(request: ReasoningCapabilityRequest) -> dict[str, Any]:
     """
     if request.llm_url.strip().rstrip("/").lower() == "https://openrouter.ai/api/v1":
         return _openrouter_reasoning_capability(request)
+    try:
+        _check_endpoint(request.llm_url)
+    except HTTPException:
+        return _NO_REASONING_CAPABILITY
     try:
         api_key = _resolve_api_key(request.llm_url, request.api_key)
     except HTTPException:
@@ -1478,6 +1494,7 @@ def start_run(request: RunRequest) -> dict[str, Any]:
     run_dir = RUNS_DIR / run_id
     html_index_url = f"/runs/{run_id}/html/index.html"
     pipeline = request.pipeline
+    _check_endpoint(request.llm_url)
     free_key_limit = _apply_free_key_runtime(request, pipeline)
     config_data = _runner_config(request, pipeline)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -1523,6 +1540,7 @@ def resume_historical_run(run_id: str, request: RunRequest) -> dict[str, Any]:
             raise HTTPException(status_code=409, detail="This run has nothing left to explore or disambiguate.")
 
     html_index_url = f"/runs/{run_id}/html/index.html"
+    _check_endpoint(request.llm_url)
     free_key_limit = _apply_free_key_runtime(request, pipeline)
     config_data = _runner_config(request, pipeline)
     started_at = str(
