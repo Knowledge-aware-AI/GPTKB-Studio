@@ -13,7 +13,7 @@ pipeline of [GPTKB 2.0](https://github.com/Knowledge-aware-AI/GPTKB2_disambiguat
 so the result has canonical identifiers rather than strings, and every merge
 decision can be inspected.
 
-A hosted instance runs at <http://minigptkb.scads.ai/>.
+A hosted instance runs at <http://gptkbstudio.scads.ai/>.
 
 ## Features
 
