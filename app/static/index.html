@@ -196,7 +196,7 @@
                 </span>
                 <input name="api_key" type="password" placeholder="sk-..." />
               </label>
-              <p class="field-note" data-role="scads-key-note">Leave this blank to use the project's shared ScaDS.AI key. Enter your own key to use your personal quota/billing instead. Runs on the shared key stop after 60 minutes unless you set a runtime limit or choose no time limit (Advanced &rsaquo; Stopping Criteria).</p>
+              <p class="field-note" data-role="scads-key-note">Leave this blank to use the project's shared ScaDS.AI key. Enter your own key to use your personal quota/billing instead.<span data-role="shared-key-limit-note"></span></p>
               <label class="field">
                 <span class="field-label">Model
                   <span class="info-tooltip" tabindex="0">
@@ -330,10 +330,7 @@
                   <label class="check-row"><input name="use_bfs" type="checkbox" /> BFS depth <input name="max_bfs_depth" type="number" min="0" placeholder="4" /></label>
                   <label class="check-row"><input name="use_cost" type="checkbox" /> Cost <div class="unit-input"><input name="max_cost" type="number" min="0" step="0.01" placeholder="10.00" /><span>$</span></div></label>
                   <label class="check-row"><input name="use_runtime" type="checkbox" /> Runtime <div class="unit-input"><input name="max_runtime_seconds" type="number" min="1" placeholder="3600" /><span>s</span></div></label>
-                  <div class="field-note free-key-runtime hidden" data-role="free-key-runtime">
-                    This run uses the shared free ScaDS.AI key, so it stops after 60 minutes unless you set a runtime limit above or choose no time limit.
-                    <label class="note-check"><input name="no_time_limit" type="checkbox" /> No time limit</label>
-                  </div>
+                  <div class="field-note free-key-runtime hidden" data-role="free-key-runtime"></div>
                 </div>
               </details>
             </form>

@@ -41,6 +41,7 @@ from app.runner import (
     OPENAI_TEXT_PRICING,
     OPENROUTER_REASONING_CAPABILITY,
     PROMPT_LANGUAGES,
+    _format_duration,
     append_subject_line,
     build_elicitation_prompt,
     build_elicitation_prompt_body,
@@ -78,6 +79,22 @@ if not DEFAULT_SCADS_API_KEY:
 # Leading underscore keeps this out of list_runs()'s directory scan, which
 # already skips any RUNS_DIR entry starting with "_".
 FOLDERS_PATH = RUNS_DIR / "_folders.json"
+
+
+def _env_int(name: str) -> int | None:
+    value = os.environ.get(name, "").strip()
+    return int(value) if value else None
+
+
+# What a site allows on the shared ScaDS.AI key (unset: no limit). The public
+# demo sets both; the internal sandbox neither, so it runs the same code
+# without limits.
+# - MINIGPTKB_SHARED_KEY_MINUTES: how long one run may use the shared key, in
+#   total over all its sessions (resumes included).
+# - MINIGPTKB_MAX_SHARED_KEY_RUNS: how many runs may use it at the same time.
+_shared_key_minutes = _env_int("MINIGPTKB_SHARED_KEY_MINUTES")
+SHARED_KEY_RUN_SECONDS = _shared_key_minutes * 60 if _shared_key_minutes else None
+MAX_SHARED_KEY_RUNS = _env_int("MINIGPTKB_MAX_SHARED_KEY_RUNS")
 
 RUNS_DIR.mkdir(parents=True, exist_ok=True)
 MP_CONTEXT = mp.get_context("spawn")
@@ -143,9 +160,6 @@ class RunRequest(BaseModel):
     pipeline: Literal["gptkb2", "classic"] = Field(default=CURRENT_PIPELINE)
     # API only: False sends requests without per-model pacing (for comparisons).
     pacing: bool = Field(default=True)
-    # Explicitly no runtime limit, also on the shared ScaDS.AI key (whose
-    # runs otherwise stop after FREE_KEY_RUNTIME_SECONDS).
-    no_time_limit: bool = Field(default=False)
 
 
 class FolderRequest(BaseModel):
@@ -313,6 +327,12 @@ class RunController:
         # here as the start of this controller's history.
         self.log_path = run_dir / "log.jsonl" if run_dir else None
         self.process: mp.Process | None = None
+        # Whether this session calls models with the shared ScaDS.AI key (it
+        # then counts towards MAX_SHARED_KEY_RUNS and SHARED_KEY_RUN_SECONDS).
+        self.shared_key = False
+        # time.monotonic() after which the server ends this session itself,
+        # if the run has not stopped at its shared-key time limit by then.
+        self.hard_stop_at: float | None = None
         self.listener_thread: threading.Thread | None = None
         self.event_queue: mp.Queue = MP_CONTEXT.Queue()
         # Bounded deques evict their oldest entry in O(1) once full, so appending
@@ -459,6 +479,12 @@ def _legal_page(slug: str):
 for _slug in ("accessibility", "imprint", "privacy"):
     app.add_api_route(f"/{_slug}/", _legal_page(_slug), methods=["GET"], include_in_schema=False)
     app.add_api_route(f"/{_slug}", _legal_page(_slug), methods=["GET"], include_in_schema=False)
+
+
+@app.get("/api/site")
+def site_settings() -> dict[str, Any]:
+    """What this site allows on the shared key, for the page's notes."""
+    return {"shared_key_minutes": _shared_key_minutes, "max_shared_key_runs": MAX_SHARED_KEY_RUNS}
 
 
 @app.get("/api/languages")
@@ -624,6 +650,29 @@ def _create_folder(name: str) -> dict[str, Any]:
         folders.append(folder)
         _write_folders_unlocked(folders)
     return folder
+
+
+# A folder marked "locked": true in _folders.json (set by hand on the server,
+# e.g. the demo's showcase folder) is read-only for everyone: it cannot be
+# renamed or deleted, and its runs cannot be deleted, moved, resumed or
+# stopped, nor can other runs be put into it. Viewing and downloading work.
+LOCKED_FOLDER_DETAIL = "This folder is read-only."
+LOCKED_RUN_DETAIL = "This run is in a read-only folder and cannot be changed."
+
+
+def _folder_is_locked(folder_id: str | None) -> bool:
+    if not folder_id:
+        return False
+    with _folders_lock:
+        return any(folder["id"] == folder_id and folder.get("locked") for folder in _read_folders_unlocked())
+
+
+def _check_run_unlocked(run_dir: Path | None) -> None:
+    if run_dir is None:
+        return
+    config = _read_json(run_dir / "runConfig.json")
+    if isinstance(config, dict) and _folder_is_locked(config.get("folder_id")):
+        raise HTTPException(status_code=403, detail=LOCKED_RUN_DETAIL)
 
 
 def _folder_exists(folder_id: str) -> bool:
@@ -966,13 +1015,25 @@ def _launch_runner(ctrl: RunController, run_dir: Path, config_data: dict[str, An
     ctrl.process = process
 
     def listen() -> None:
+        # The time a shared-key run is alive counts towards its
+        # SHARED_KEY_RUN_SECONDS; it is saved every few seconds, so a server
+        # restart (which also ends the run) loses at most that much.
+        counted_until = time.monotonic()
         while process.is_alive() or not event_queue.empty():
+            if ctrl.shared_key and time.monotonic() - counted_until >= SHARED_KEY_TIME_SAVE_SECONDS:
+                now = time.monotonic()
+                _add_shared_key_seconds(run_dir, now - counted_until)
+                counted_until = now
+            if ctrl.hard_stop_at is not None and time.monotonic() >= ctrl.hard_stop_at and ctrl.status != "stopped":
+                _stop_controller(ctrl, "Time limit on the shared ScaDS.AI key reached: run ended.")
             try:
                 event = event_queue.get(timeout=0.2)
             except queue.Empty:
                 continue
             ctrl.emit(event)
 
+        if ctrl.shared_key:
+            _add_shared_key_seconds(run_dir, time.monotonic() - counted_until)
         process.join(timeout=0)
         if process.exitcode == 0:
             updates: dict[str, Any] = {"ended_at": datetime.now().isoformat(timespec="seconds")}
@@ -1034,12 +1095,6 @@ def _normalize_url(url: str) -> str:
     return url.strip().rstrip("/").lower()
 
 
-# Runs on the project's shared ScaDS.AI key stop after an hour unless the
-# user set a runtime limit themselves, so a forgotten crawl cannot hold the
-# shared quota for days. Any explicit limit (also a very large one) is kept.
-FREE_KEY_RUNTIME_SECONDS = 3600
-
-
 def _uses_shared_key(request: RunRequest, pipeline: str) -> bool:
     """Whether any model of the run is called with the shared ScaDS.AI key:
     the main endpoint is ScaDS.AI and the user gave no key, or (with the
@@ -1056,19 +1111,79 @@ def _uses_shared_key(request: RunRequest, pipeline: str) -> bool:
     )
 
 
-def _apply_free_key_runtime(request: RunRequest, pipeline: str) -> bool:
-    """Sets the one-hour runtime limit on shared-key runs without one; True if it did."""
-    if request.max_runtime_seconds is None and not request.no_time_limit and _uses_shared_key(request, pipeline):
-        request.max_runtime_seconds = FREE_KEY_RUNTIME_SECONDS
-        return True
-    return False
+# Seconds a run has used the shared key, over all its sessions.
+SHARED_KEY_TIME_FILE = "sharedKeyTime.json"
+SHARED_KEY_TIME_SAVE_SECONDS = 10.0
+# The runner checks its runtime limit between model requests, so a request
+# that hangs until its timeout (and is retried) can keep a run going for
+# minutes past the limit; this long after the limit the server ends it.
+SHARED_KEY_GRACE_SECONDS = 30
+_shared_key_slots_lock = threading.Lock()
 
 
-def _log_free_key_runtime(ctrl: RunController) -> None:
+def _shared_key_seconds_used(run_dir: Path) -> float:
+    data = _read_json(run_dir / SHARED_KEY_TIME_FILE)
+    try:
+        return float(data.get("seconds", 0)) if isinstance(data, dict) else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _add_shared_key_seconds(run_dir: Path, seconds: float) -> None:
+    if seconds <= 0 or not run_dir.exists():
+        return
+    total = _shared_key_seconds_used(run_dir) + seconds
+    (run_dir / SHARED_KEY_TIME_FILE).write_text(json.dumps({"seconds": round(total, 1)}), encoding="utf-8")
+
+
+def _active_shared_key_runs() -> int:
+    """Shared-key sessions running now, or about to (launched but not started)."""
+    with _controllers_lock:
+        return sum(
+            1 for ctrl in controllers.values()
+            if ctrl.shared_key and (ctrl.process is None or ctrl.process.is_alive())
+        )
+
+
+def _apply_shared_key_limits(request: RunRequest, pipeline: str, run_dir: Path) -> int | None:
+    """Enforces this site's shared-key limits on a run about to start or
+    resume; returns the seconds the run may still use the key, or None when
+    it does not use the shared key or there is no time limit. A runtime
+    limit of the user's own is kept when it is shorter. Callers hold
+    _shared_key_slots_lock until the run's controller is marked shared_key,
+    so concurrent starts cannot exceed MAX_SHARED_KEY_RUNS."""
+    if not _uses_shared_key(request, pipeline):
+        return None
+    if MAX_SHARED_KEY_RUNS is not None and _active_shared_key_runs() >= MAX_SHARED_KEY_RUNS:
+        raise HTTPException(
+            status_code=503,
+            detail="The demo is busy right now. Please try again in a few minutes, or use your own API key.",
+        )
+    if SHARED_KEY_RUN_SECONDS is None:
+        return None
+    remaining = math.floor(SHARED_KEY_RUN_SECONDS - _shared_key_seconds_used(run_dir))
+    if remaining < 1:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This run has used its {_shared_key_minutes} minutes on the shared ScaDS.AI key; "
+                   "resume it with your own API key.",
+        )
+    if request.max_runtime_seconds is None or request.max_runtime_seconds > remaining:
+        request.max_runtime_seconds = remaining
+    return remaining
+
+
+def _set_hard_stop(ctrl: RunController, shared_key_seconds: int | None) -> None:
+    if shared_key_seconds:
+        ctrl.hard_stop_at = time.monotonic() + shared_key_seconds + SHARED_KEY_GRACE_SECONDS
+
+
+def _log_shared_key_limit(ctrl: RunController, remaining: int) -> None:
+    left = f" ({_format_duration(remaining)} left)" if remaining < SHARED_KEY_RUN_SECONDS else ""
     ctrl.emit({
         "type": "log", "level": "warning", "time": time.strftime("%H:%M:%S"),
-        "message": "This run uses the shared free ScaDS.AI key, so it stops after 60 minutes. "
-                   "For a longer run, set a runtime limit or choose No time limit under Advanced > Stopping Criteria.",
+        "message": f"This run uses the shared free ScaDS.AI key, so it stops after {_shared_key_minutes} minutes "
+                   f"in total{left}. For a longer run, use your own API key.",
     })
 
 
@@ -1402,6 +1517,8 @@ def rename_folder(folder_id: str, request: FolderRequest) -> dict[str, Any]:
         folder = next((item for item in folders if item["id"] == folder_id), None)
         if folder is None:
             raise HTTPException(status_code=404, detail="Folder not found.")
+        if folder.get("locked"):
+            raise HTTPException(status_code=403, detail=LOCKED_FOLDER_DETAIL)
         folder["name"] = name
         _write_folders_unlocked(folders)
     return folder
@@ -1413,6 +1530,8 @@ def delete_folder(folder_id: str) -> dict[str, Any]:
         folders = _read_folders_unlocked()
         if not any(folder["id"] == folder_id for folder in folders):
             raise HTTPException(status_code=404, detail="Folder not found.")
+        if any(folder["id"] == folder_id and folder.get("locked") for folder in folders):
+            raise HTTPException(status_code=403, detail=LOCKED_FOLDER_DETAIL)
         folders = [folder for folder in folders if folder["id"] != folder_id]
         _write_folders_unlocked(folders)
 
@@ -1445,6 +1564,9 @@ def update_run(run_id: str, request: RunFolderUpdate) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Run not found.")
     if request.folder_id is not None and not _folder_exists(request.folder_id):
         raise HTTPException(status_code=404, detail="Folder not found.")
+    _check_run_unlocked(run_dir)
+    if _folder_is_locked(request.folder_id):
+        raise HTTPException(status_code=403, detail=LOCKED_FOLDER_DETAIL)
 
     _update_run_config(run_dir, folder_id=request.folder_id)
     return {"run_id": run_id, "folder_id": request.folder_id}
@@ -1458,6 +1580,7 @@ def _delete_run_dir(run_id: str) -> None:
     run_dir = _resolve_run_dir(run_id)
     if not run_dir.exists() or not run_dir.is_dir():
         raise HTTPException(status_code=404, detail="Run not found.")
+    _check_run_unlocked(run_dir)
 
     shutil.rmtree(run_dir)
 
@@ -1485,6 +1608,8 @@ def bulk_delete_runs(request: BulkDeleteRequest) -> dict[str, Any]:
 def bulk_move_runs(request: BulkMoveRequest) -> dict[str, Any]:
     if request.folder_id is not None and not _folder_exists(request.folder_id):
         raise HTTPException(status_code=404, detail="Folder not found.")
+    if _folder_is_locked(request.folder_id):
+        raise HTTPException(status_code=403, detail=LOCKED_FOLDER_DETAIL)
 
     moved: list[str] = []
     skipped: list[dict[str, str]] = []
@@ -1493,6 +1618,7 @@ def bulk_move_runs(request: BulkMoveRequest) -> dict[str, Any]:
             run_dir = _resolve_run_dir(run_id)
             if not run_dir.exists() or not run_dir.is_dir():
                 raise HTTPException(status_code=404, detail="Run not found.")
+            _check_run_unlocked(run_dir)
             _update_run_config(run_dir, folder_id=request.folder_id)
             moved.append(run_id)
         except HTTPException as exc:
@@ -1507,20 +1633,25 @@ def start_run(request: RunRequest) -> dict[str, Any]:
     html_index_url = f"/runs/{run_id}/html/index.html"
     pipeline = request.pipeline
     _check_endpoint(request.llm_url)
-    free_key_limit = _apply_free_key_runtime(request, pipeline)
-    config_data = _runner_config(request, pipeline)
-    run_dir.mkdir(parents=True, exist_ok=True)
-    started_at = datetime.now().isoformat(timespec="seconds")
-    folder_id = _resolve_folder_id(request.folder_id, request.new_folder_name)
-    (run_dir / "runConfig.json").write_text(
-        json.dumps(_safe_run_config(request, started_at=started_at, folder_id=folder_id, pipeline=pipeline), indent=2),
-        encoding="utf-8",
-    )
+    if request.folder_id and _folder_is_locked(request.folder_id):
+        raise HTTPException(status_code=403, detail=LOCKED_FOLDER_DETAIL)
+    with _shared_key_slots_lock:
+        shared_key_seconds = _apply_shared_key_limits(request, pipeline, run_dir)
+        config_data = _runner_config(request, pipeline)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        started_at = datetime.now().isoformat(timespec="seconds")
+        folder_id = _resolve_folder_id(request.folder_id, request.new_folder_name)
+        (run_dir / "runConfig.json").write_text(
+            json.dumps(_safe_run_config(request, started_at=started_at, folder_id=folder_id, pipeline=pipeline), indent=2),
+            encoding="utf-8",
+        )
+        ctrl = _prepare_controller(run_id, run_dir)
+        ctrl.shared_key = _uses_shared_key(request, pipeline)
+        _set_hard_stop(ctrl, shared_key_seconds)
 
-    ctrl = _prepare_controller(run_id, run_dir)
     _emit_run_start_logs(ctrl, run_id, request, pipeline, html_index_url, "starting")
-    if free_key_limit:
-        _log_free_key_runtime(ctrl)
+    if shared_key_seconds:
+        _log_shared_key_limit(ctrl, shared_key_seconds)
     _launch_runner(ctrl, run_dir, config_data)
     return {
         "run_id": run_id,
@@ -1540,6 +1671,7 @@ def resume_historical_run(run_id: str, request: RunRequest) -> dict[str, Any]:
     run_dir = _resolve_run_dir(run_id)
     if not run_dir.exists() or not run_dir.is_dir():
         raise HTTPException(status_code=404, detail="Run not found.")
+    _check_run_unlocked(run_dir)
 
     existing_config = _read_json(run_dir / "runConfig.json") or {}
     pipeline = _pipeline_of(existing_config)
@@ -1553,30 +1685,34 @@ def resume_historical_run(run_id: str, request: RunRequest) -> dict[str, Any]:
 
     html_index_url = f"/runs/{run_id}/html/index.html"
     _check_endpoint(request.llm_url)
-    free_key_limit = _apply_free_key_runtime(request, pipeline)
-    config_data = _runner_config(request, pipeline)
-    started_at = str(
-        (existing_config.get("started_at") if isinstance(existing_config, dict) else None)
-        or datetime.now().isoformat(timespec="seconds")
-    )
-    # A run's folder assignment is set once (at launch or via the History
-    # table's move control) and carried forward across resumes -- the resume
-    # form's folder fields (if any) are ignored here so resuming never
-    # silently re-files or re-creates a folder for an already-organized run.
-    existing_folder_id = existing_config.get("folder_id") if isinstance(existing_config, dict) else None
-    safe_config = _safe_run_config(
-        request,
-        started_at=started_at,
-        resumed_at=datetime.now().isoformat(timespec="seconds"),
-        folder_id=existing_folder_id,
-        pipeline=pipeline,
-    )
-    (run_dir / "runConfig.json").write_text(json.dumps(safe_config, indent=2), encoding="utf-8")
+    with _shared_key_slots_lock:
+        shared_key_seconds = _apply_shared_key_limits(request, pipeline, run_dir)
+        config_data = _runner_config(request, pipeline)
+        started_at = str(
+            (existing_config.get("started_at") if isinstance(existing_config, dict) else None)
+            or datetime.now().isoformat(timespec="seconds")
+        )
+        # A run's folder assignment is set once (at launch or via the History
+        # table's move control) and carried forward across resumes -- the resume
+        # form's folder fields (if any) are ignored here so resuming never
+        # silently re-files or re-creates a folder for an already-organized run.
+        existing_folder_id = existing_config.get("folder_id") if isinstance(existing_config, dict) else None
+        safe_config = _safe_run_config(
+            request,
+            started_at=started_at,
+            resumed_at=datetime.now().isoformat(timespec="seconds"),
+            folder_id=existing_folder_id,
+            pipeline=pipeline,
+        )
+        (run_dir / "runConfig.json").write_text(json.dumps(safe_config, indent=2), encoding="utf-8")
 
-    ctrl = _prepare_controller(run_id, run_dir)
+        ctrl = _prepare_controller(run_id, run_dir)
+        ctrl.shared_key = _uses_shared_key(request, pipeline)
+        _set_hard_stop(ctrl, shared_key_seconds)
+
     _emit_run_start_logs(ctrl, run_id, request, pipeline, html_index_url, "resuming")
-    if free_key_limit:
-        _log_free_key_runtime(ctrl)
+    if shared_key_seconds:
+        _log_shared_key_limit(ctrl, shared_key_seconds)
     _launch_runner(ctrl, run_dir, config_data)
     return {
         "run_id": run_id,
@@ -1592,6 +1728,7 @@ def _require_active_controller(run_id: str) -> RunController:
     ctrl = controllers.get(run_id)
     if ctrl is None or not ctrl.is_alive():
         raise HTTPException(status_code=409, detail="This run is not active.")
+    _check_run_unlocked(ctrl.run_dir)
     return ctrl
 
 
@@ -1618,6 +1755,12 @@ def stop_run(run_id: str) -> dict[str, str]:
     ctrl = controllers.get(run_id)
     if ctrl is None:
         raise HTTPException(status_code=404, detail="Run not found.")
+    _check_run_unlocked(ctrl.run_dir)
+    _stop_controller(ctrl)
+    return {"status": "stopped"}
+
+
+def _stop_controller(ctrl: RunController, message: str = "Run process killed.") -> None:
     ctrl.stop_event.set()
     ctrl.pause_event.clear()
     ctrl.status = "stopped"
@@ -1627,9 +1770,8 @@ def stop_run(run_id: str) -> dict[str, str]:
         "type": "log",
         "level": "warning",
         "time": time.strftime("%H:%M:%S"),
-        "message": "Run process killed." if killed else "Stop requested, but no run process was active.",
+        "message": message if killed else "Stop requested, but no run process was active.",
     })
-    return {"status": "stopped"}
 
 
 @app.get("/api/runs/{run_id}/status")

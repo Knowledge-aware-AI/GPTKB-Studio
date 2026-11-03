@@ -239,6 +239,23 @@ let tabIdCounter = 0;
 let cachedRunsList = [];
 let cachedFoldersList = [];
 let languagesPromise = null;
+// What this site allows on the shared ScaDS.AI key (GET /api/site): the
+// public demo limits it, the internal sandbox does not.
+let siteSettings = {};
+const siteSettingsPromise = fetch("/api/site")
+  .then((response) => response.json())
+  .then((data) => { siteSettings = data || {}; })
+  .catch(() => {});
+
+// Folders marked read-only on the server (e.g. the demo's showcase folder)
+// are not offered as targets for new or moved runs.
+function writableFolders() {
+  return cachedFoldersList.filter((folder) => !folder.locked);
+}
+
+function isLockedFolder(folderId) {
+  return Boolean(folderId) && cachedFoldersList.some((folder) => folder.id === folderId && folder.locked);
+}
 
 async function loadFolders() {
   try {
@@ -683,7 +700,6 @@ function buildTabController(tabId, root) {
       max_entities: optionalNumber(data, "use_entities", "max_entities"),
       max_bfs_depth: optionalNumber(data, "use_bfs", "max_bfs_depth"),
       max_runtime_seconds: optionalNumber(data, "use_runtime", "max_runtime_seconds"),
-      no_time_limit: data.has("no_time_limit"),
       max_cost: optionalNumber(data, "use_cost", "max_cost"),
       nthreads: Number(data.get("nthreads")),
       max_requests_per_minute: data.get("max_requests_per_minute") === "" ? null : Number(data.get("max_requests_per_minute")),
@@ -1080,11 +1096,11 @@ function buildTabController(tabId, root) {
     updateFreeKeyNote();
   }
 
-  // Runs on the shared ScaDS.AI key stop after 60 minutes unless the user
-  // sets a runtime limit (enforced by the server; this note only explains
-  // it). The shared key is used when the main endpoint is ScaDS.AI without a
-  // key of the user's own, or when NER/NED run on ScaDS.AI next to another
-  // main endpoint.
+  // On sites that limit the shared ScaDS.AI key (siteSettings), runs on it
+  // stop after shared_key_minutes in total (enforced by the server; this
+  // note only explains it). The shared key is used when the main endpoint is
+  // ScaDS.AI without a key of the user's own, or when NER/NED run on ScaDS.AI
+  // next to another main endpoint.
   function usesSharedKey() {
     const mainUrl = normalizeUrl(llmUrl.value);
     if (mainUrl === SCADS_ENDPOINT && !apiKeyInput.value.trim()) return true;
@@ -1094,16 +1110,21 @@ function buildTabController(tabId, root) {
       return normalizeUrl(JSON.parse(value)[0]) === SCADS_ENDPOINT && mainUrl !== SCADS_ENDPOINT;
     });
   }
-  // The note and its "No time limit" box show only for shared-key runs
-  // without a runtime limit of their own.
   function updateFreeKeyNote() {
+    const minutes = siteSettings.shared_key_minutes;
+    const limitNote = root.querySelector('[data-role="shared-key-limit-note"]');
+    if (limitNote) {
+      limitNote.textContent = minutes ? ` Runs on the shared key stop after ${minutes} minutes in total.` : "";
+    }
     const freeKeyRuntime = root.querySelector('[data-role="free-key-runtime"]');
     if (!freeKeyRuntime) return;
-    const runtimeSet = form.elements.use_runtime.checked && form.elements.max_runtime_seconds.value !== "";
-    const show = usesSharedKey() && !runtimeSet;
-    freeKeyRuntime.classList.toggle("hidden", !show);
-    if (!show) form.elements.no_time_limit.checked = false;
+    freeKeyRuntime.textContent = minutes
+      ? `This run uses the shared free ScaDS.AI key, so it stops after at most ${minutes} minutes in total, ` +
+        "resumes included. For a longer run, enter your own API key."
+      : "";
+    freeKeyRuntime.classList.toggle("hidden", !(minutes && usesSharedKey()));
   }
+  siteSettingsPromise.then(updateFreeKeyNote);
 
   function syncRoleCustomInput(picker) {
     const typed = picker.select.value === CUSTOM_ROLE_MODEL;
@@ -1315,7 +1336,7 @@ function buildTabController(tabId, root) {
     noneOption.value = "";
     noneOption.textContent = "No folder";
     folderSelect.appendChild(noneOption);
-    cachedFoldersList.forEach((folder) => {
+    writableFolders().forEach((folder) => {
       const option = document.createElement("option");
       option.value = folder.id;
       option.textContent = folder.name;
@@ -1326,7 +1347,7 @@ function buildTabController(tabId, root) {
     newOption.textContent = "+ New folder…";
     folderSelect.appendChild(newOption);
 
-    const stillValid = previousValue === "__new__" || previousValue === "" || cachedFoldersList.some((folder) => folder.id === previousValue);
+    const stillValid = previousValue === "__new__" || previousValue === "" || writableFolders().some((folder) => folder.id === previousValue);
     folderSelect.value = stillValid ? previousValue : "";
     newFolderNameLabel.classList.toggle("hidden", folderSelect.value !== "__new__");
   }
@@ -1465,7 +1486,9 @@ let collapsedFolders = loadCollapsedFolders();
 let selectedRunIds = new Set();
 
 function selectableRunIds(runs) {
-  return runs.filter((run) => !ACTIVE_RUN_STATUSES.includes(run.status)).map((run) => run.run_id);
+  return runs
+    .filter((run) => !ACTIVE_RUN_STATUSES.includes(run.status) && !isLockedFolder(run.folder_id))
+    .map((run) => run.run_id);
 }
 
 function updateBulkDeleteButton() {
@@ -1481,7 +1504,7 @@ function updateMoveSelectedControl() {
   // Options beyond the fixed "" placeholder and "__none__" are rebuilt from
   // the current folder list every render, same as the other folder pickers.
   while (select.options.length > 2) select.remove(2);
-  [...cachedFoldersList]
+  writableFolders()
     .sort((a, b) => a.name.localeCompare(b.name))
     .forEach((folder) => {
       const option = document.createElement("option");
@@ -1529,7 +1552,15 @@ function buildFolderRow(group, groupRuns, isCollapsed) {
   countSpan.textContent = `${groupRuns.length} run${groupRuns.length === 1 ? "" : "s"}`;
   groupCell.appendChild(countSpan);
 
-  if (group.id) {
+  if (group.locked) {
+    const lockedSpan = document.createElement("span");
+    lockedSpan.className = "folder-locked";
+    lockedSpan.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
+      '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Read-only';
+    lockedSpan.title = "These runs can be explored, watched and downloaded, but not changed.";
+    groupCell.appendChild(lockedSpan);
+  } else if (group.id) {
     const actions = document.createElement("span");
     actions.className = "folder-actions";
 
@@ -1584,12 +1615,15 @@ function buildRunRow(run) {
   const row = document.createElement("tr");
   row.className = "run-row";
   const isActive = ACTIVE_RUN_STATUSES.includes(run.status);
+  // Runs in a read-only folder keep only Explore and Watch (the server
+  // refuses the rest anyway).
+  const isLocked = isLockedFolder(run.folder_id);
 
   const selectCell = document.createElement("td");
   selectCell.className = "select-cell";
   const checkbox = document.createElement("input");
   checkbox.type = "checkbox";
-  checkbox.disabled = isActive;
+  checkbox.disabled = isActive || isLocked;
   checkbox.checked = selectedRunIds.has(run.run_id);
   checkbox.addEventListener("change", () => {
     if (checkbox.checked) selectedRunIds.add(run.run_id);
@@ -1637,7 +1671,7 @@ function buildRunRow(run) {
   noneOption.value = "";
   noneOption.textContent = "No folder";
   folderMoveSelect.appendChild(noneOption);
-  cachedFoldersList.forEach((folder) => {
+  (isLocked ? cachedFoldersList : writableFolders()).forEach((folder) => {
     const option = document.createElement("option");
     option.value = folder.id;
     option.textContent = folder.name;
@@ -1671,7 +1705,7 @@ function buildRunRow(run) {
   exploreButton.textContent = "Explore";
   actionCell.appendChild(exploreButton);
 
-  actionCell.appendChild(folderMoveSelect);
+  if (!isLocked) actionCell.appendChild(folderMoveSelect);
 
   const watchButton = document.createElement("button");
   watchButton.type = "button";
@@ -1712,7 +1746,7 @@ function buildRunRow(run) {
       window.alert(`Could not resume run: ${error.message}`);
     }
   });
-  actionCell.appendChild(resumeButton);
+  if (!isLocked) actionCell.appendChild(resumeButton);
 
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
@@ -1730,7 +1764,7 @@ function buildRunRow(run) {
       window.alert(`Could not delete run: ${error.message}`);
     }
   });
-  actionCell.appendChild(deleteButton);
+  if (!isLocked) actionCell.appendChild(deleteButton);
   row.appendChild(actionCell);
 
   return row;
@@ -1761,8 +1795,11 @@ function renderRuns(runs) {
     runsByFolder.get(key).push(run);
   });
 
-  const sortedFolders = [...cachedFoldersList].sort((a, b) => a.name.localeCompare(b.name));
-  const groups = [...sortedFolders.map((folder) => ({ id: folder.id, name: folder.name }))];
+  // Read-only folders (the showcase) first, then the others by name.
+  const sortedFolders = [...cachedFoldersList].sort(
+    (a, b) => Boolean(b.locked) - Boolean(a.locked) || a.name.localeCompare(b.name)
+  );
+  const groups = [...sortedFolders.map((folder) => ({ id: folder.id, name: folder.name, locked: Boolean(folder.locked) }))];
   const ungrouped = runsByFolder.get(null) || [];
   if (ungrouped.length) groups.push({ id: null, name: "No folder" });
 

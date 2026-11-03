@@ -90,8 +90,10 @@ Environment variables:
 
 | Variable | Purpose |
 |---|---|
-| `SCADS_API_KEY` | Key for the ScaDS.AI inference service. Used for label embeddings, and for model calls on ScaDS.AI when the user leaves the API key field empty. Runs on this shared key without a runtime limit stop after 60 minutes. |
+| `SCADS_API_KEY` | Key for the ScaDS.AI inference service. Used for label embeddings, and for model calls on ScaDS.AI when the user leaves the API key field empty. |
 | `MINIGPTKB_RUNS_DIR` | Where run folders are kept (default: `runs/`). |
+| `MINIGPTKB_SHARED_KEY_MINUTES` | How many minutes one run may use the shared key, in total over all its sessions; the server ends it after that (default: no limit). |
+| `MINIGPTKB_MAX_SHARED_KEY_RUNS` | How many runs may use the shared key at the same time (default: no limit). |
 | `MINIGPTKB_ALLOW_PRIVATE_ENDPOINTS` | Set to `1` to allow model endpoints on private, loopback or link-local addresses (e.g. a model served with vLLM or Ollama on the same machine). By default such endpoints are refused, so that users of a hosted instance cannot make the server call its own network. |
 
 API keys that users enter in the form are passed to the run in memory only:
@@ -100,6 +102,12 @@ were entered for.
 
 `deploy/` contains an example systemd unit and environment file for a hosted
 instance.
+
+A folder can be made read-only, e.g. for showcase runs on a public instance,
+by adding `"locked": true` to its entry in `<runs dir>/_folders.json` on the
+server. Nobody can then rename or delete it, delete, move, resume or stop its
+runs, or put other runs into it; its runs can still be explored, watched and
+downloaded.
 
 ## Repository layout
 

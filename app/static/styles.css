@@ -746,27 +746,9 @@ body.resizing-panes .pane-splitter::after {
   margin: -6px 0 12px;
 }
 
-/* A small option inside a note (e.g. "No time limit" in the shared-key note). */
+/* The shared-key time limit, on sites that have one. */
 .free-key-runtime {
   margin-top: 4px;
-}
-
-.note-check {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--ink);
-  cursor: pointer;
-}
-
-.note-check input {
-  width: 13px;
-  height: 13px;
-  margin: 0;
-  accent-color: var(--accent);
 }
 
 .info-tooltip {
@@ -1347,6 +1329,22 @@ body.resizing-columns .col-resizer:hover::after {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: .05em;
+}
+
+.folder-locked {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 10px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.folder-locked svg {
+  width: 12px;
+  height: 12px;
 }
 
 .folder-actions {
