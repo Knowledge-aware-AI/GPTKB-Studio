@@ -1036,6 +1036,14 @@ details.advanced[open] summary::before {
   padding: 7px 10px;
 }
 
+.hero-note {
+  max-width: 240px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .hero-actions button {
   border-radius: 8px;
   padding: 0 18px;

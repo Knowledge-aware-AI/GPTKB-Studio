@@ -53,6 +53,7 @@ from app.runner import (
     resolve_reasoning_settings,
 )
 from app import endpoints, reasoning
+from app.redact import redactor
 from app.disambig import prompts as P
 from app.disambig import store as S
 from app.disambig.embeddings import EmbeddingClient, VectorIndex, cluster_labels
@@ -663,9 +664,12 @@ class DisambiguatedKBCRunner:
         return f"{prefix}{value}", value
 
     def _record_failure(self, subject: str, stage: str, error: str, detail: str | None = None) -> None:
+        # Failures are shown in the public report: no API keys in them.
+        redact = redactor(self.config.api_key, self.config.ner_api_key, self.config.ned_api_key,
+                          self.config.embedding_api_key)
         self.db.execute(
             "INSERT INTO failures (subject, stage, error, detail, time) VALUES (?, ?, ?, ?, ?)",
-            (subject, stage, error[:2000], detail, time.strftime("%H:%M:%S")),
+            (subject, stage, redact(error)[:2000], redact(detail), time.strftime("%H:%M:%S")),
         )
 
     def _log_decision(

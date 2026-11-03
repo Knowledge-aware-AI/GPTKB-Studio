@@ -21,6 +21,7 @@ from urllib.parse import quote
 from openai import OpenAI, RateLimitError
 
 from app import endpoints
+from app.redact import redactor
 from app.usage import UsageCounter
 
 
@@ -563,6 +564,16 @@ _MAX_DISPLAYED_ENTITIES = 3000
 _MAX_DISPLAYED_TRIPLES = 5000
 
 
+# Links to the legal pages of the site, at the bottom of every report page:
+# reports are public pages of the site too. Root-relative, so they point to
+# the legal pages of whichever instance serves the report.
+REPORT_LEGAL_FOOTER = (
+    '<footer class="legal-footer" style="text-align:center;font-size:13px;padding:18px 12px 26px;opacity:.85">'
+    '<a href="/accessibility/">Accessibility</a> · <a href="/imprint/">Imprint</a> · '
+    '<a href="/privacy/">Data Protection</a> · <a href="/terms/">Terms of Use</a></footer>'
+)
+
+
 class LocalKBCRunner:
     def __init__(
         self,
@@ -835,6 +846,8 @@ class LocalKBCRunner:
         }
         if detail is not None:
             record["detail"] = detail
+        # Failures are shown in the public report: no API keys in them.
+        record = redactor(self.config.api_key)(record)
         self._append_jsonl(self.failed_subjects_path, record)
         with self.state_lock:
             self.failure_records.append(record)
@@ -1247,6 +1260,7 @@ class LocalKBCRunner:
 {incoming_rows}
 </table>
 <div class="footer">GPTKB Studio HTML Collection</div>
+{REPORT_LEGAL_FOOTER}
 </body>
 </html>
 """
@@ -2032,6 +2046,7 @@ class LocalKBCRunner:
     paint();
 }})();
 </script>
+{REPORT_LEGAL_FOOTER}
 </body>
 </html>
 """

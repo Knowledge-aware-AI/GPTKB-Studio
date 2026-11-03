@@ -12,7 +12,7 @@ from html import escape
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from app.runner import PROMPT_LANGUAGES, _format_duration
+from app.runner import PROMPT_LANGUAGES, REPORT_LEGAL_FOOTER, _format_duration
 
 if TYPE_CHECKING:
     from app.disambig.runner import DisambiguatedKBCRunner
@@ -63,6 +63,7 @@ def _page(title: str, header: str, body: str, extra_scripts: str = "") -> str:
 <main>
 {body}
 </main>
+{REPORT_LEGAL_FOOTER}
 {extra_scripts}
 <script src="report.js"></script>
 </body>

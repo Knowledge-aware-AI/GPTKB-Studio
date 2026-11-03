@@ -35,6 +35,7 @@ from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from app import endpoints
+from app.redact import redactor
 from app.runner import (
     KBCConfig,
     LocalKBCRunner,
@@ -442,6 +443,10 @@ def _is_run_active(run_id: str) -> bool:
     return controller is not None and controller.is_alive()
 
 
+# The config fields of a run that hold API keys.
+API_KEY_FIELDS = ("api_key", "ner_api_key", "ned_api_key", "embedding_api_key")
+
+
 def _run_process_entry(
     config_data: dict[str, Any],
     run_dir: str,
@@ -449,8 +454,12 @@ def _run_process_entry(
     pause_event: Any,
     stop_event: Any,
 ) -> None:
+    # Everything the run reports goes through the redactor, so an API key a
+    # provider echoes in an error message never reaches the log or the page.
+    redact = redactor(*(config_data.get(name) for name in API_KEY_FIELDS))
+
     def emit(event: dict[str, Any]) -> None:
-        event_queue.put(event)
+        event_queue.put(redact(event))
 
     if config_data.get("pipeline") == CURRENT_PIPELINE:
         runner_class, config_class = DisambiguatedKBCRunner, DisambigConfig
@@ -472,14 +481,15 @@ def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
-# The legal pages linked from the footer, at the same addresses as on gptkb.org.
+# The legal pages linked from the footer, at the same addresses as on gptkb.org
+# (plus the terms of use).
 def _legal_page(slug: str):
     def page() -> FileResponse:
         return FileResponse(STATIC_DIR / f"{slug}.html")
     return page
 
 
-for _slug in ("accessibility", "imprint", "privacy"):
+for _slug in ("accessibility", "imprint", "privacy", "terms"):
     app.add_api_route(f"/{_slug}/", _legal_page(_slug), methods=["GET"], include_in_schema=False)
     app.add_api_route(f"/{_slug}", _legal_page(_slug), methods=["GET"], include_in_schema=False)
 
