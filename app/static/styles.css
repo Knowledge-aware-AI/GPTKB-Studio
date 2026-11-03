@@ -415,7 +415,8 @@ body.resizing-rail, body.resizing-panes, body.resizing-columns {
   gap: 3px;
 }
 
-.tab-button {
+.tab-button,
+.rail-link {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -431,16 +432,22 @@ body.resizing-rail, body.resizing-panes, body.resizing-columns {
 }
 
 .tab-button:hover,
-.tab-button.active {
+.tab-button.active,
+.rail-link:hover {
   background: rgba(255, 255, 255, .07);
   color: #fff;
 }
 
-.tab-button svg {
+.tab-button svg,
+.rail-link svg {
   width: 14px;
   height: 14px;
   flex: none;
   opacity: .8;
+}
+
+.rail-link {
+  text-decoration: none;
 }
 
 .theme-toggle {
