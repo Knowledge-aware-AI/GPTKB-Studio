@@ -94,6 +94,7 @@ Environment variables:
 | `MINIGPTKB_RUNS_DIR` | Where run folders are kept (default: `runs/`). |
 | `MINIGPTKB_SHARED_KEY_MINUTES` | How many minutes one run may use the shared key, in total over all its sessions; the server ends it after that (default: no limit). |
 | `MINIGPTKB_MAX_SHARED_KEY_RUNS` | How many runs may use the shared key at the same time (default: no limit). |
+| `MINIGPTKB_SITE_LABEL` | A label shown in red under the app name, e.g. `Sandbox` on an internal test instance (default: none). |
 | `MINIGPTKB_ALLOW_PRIVATE_ENDPOINTS` | Set to `1` to allow model endpoints on private, loopback or link-local addresses (e.g. a model served with vLLM or Ollama on the same machine). By default such endpoints are refused, so that users of a hosted instance cannot make the server call its own network. |
 
 API keys that users enter in the form are passed to the run in memory only:
