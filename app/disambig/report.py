@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from app.disambig.runner import DisambiguatedKBCRunner
 
 _ASSETS = Path(__file__).resolve().parent / "assets"
+_FAVICON = Path(__file__).resolve().parent.parent / "static" / "favicon.svg"  # the app's icon
 _VIS = Path(__file__).resolve().parent.parent / "vendor" / "vis-network.min.js"
 _PALETTE = ["#2563eb", "#0f766e", "#b45309", "#be123c", "#7c3aed", "#15803d", "#ca8a04", "#0369a1", "#c2410c", "#4d7c0f"]
 # Knowledge-graph nodes: soft pastel fills (one per BFS depth) with a slightly
@@ -54,6 +55,7 @@ def _page(title: str, header: str, body: str, extra_scripts: str = "") -> str:
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{escape(title)}</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="stylesheet" href="report.css">
 </head>
 <body>
@@ -116,6 +118,7 @@ class ReportWriter:
         self.html_dir.mkdir(parents=True, exist_ok=True)
         for name in ("report.css", "report.js"):
             shutil.copyfile(_ASSETS / name, self.html_dir / name)
+        shutil.copyfile(_FAVICON, self.html_dir / "favicon.svg")
         if not (self.html_dir / "vis-network.min.js").exists():
             shutil.copyfile(_VIS, self.html_dir / "vis-network.min.js")
 
