@@ -449,6 +449,18 @@ def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
+# The legal pages linked from the footer, at the same addresses as on gptkb.org.
+def _legal_page(slug: str):
+    def page() -> FileResponse:
+        return FileResponse(STATIC_DIR / f"{slug}.html")
+    return page
+
+
+for _slug in ("accessibility", "imprint", "privacy"):
+    app.add_api_route(f"/{_slug}/", _legal_page(_slug), methods=["GET"], include_in_schema=False)
+    app.add_api_route(f"/{_slug}", _legal_page(_slug), methods=["GET"], include_in_schema=False)
+
+
 @app.get("/api/languages")
 def list_languages() -> dict[str, Any]:
     languages = [
