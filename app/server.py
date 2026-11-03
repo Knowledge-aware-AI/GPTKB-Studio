@@ -95,6 +95,9 @@ def _env_int(name: str) -> int | None:
 _shared_key_minutes = _env_int("MINIGPTKB_SHARED_KEY_MINUTES")
 SHARED_KEY_RUN_SECONDS = _shared_key_minutes * 60 if _shared_key_minutes else None
 MAX_SHARED_KEY_RUNS = _env_int("MINIGPTKB_MAX_SHARED_KEY_RUNS")
+# A label the page shows under the app name (the sandbox sets "Sandbox"), so
+# it is clear which site one is on.
+SITE_LABEL = os.environ.get("MINIGPTKB_SITE_LABEL", "").strip() or None
 
 RUNS_DIR.mkdir(parents=True, exist_ok=True)
 MP_CONTEXT = mp.get_context("spawn")
@@ -483,8 +486,8 @@ for _slug in ("accessibility", "imprint", "privacy"):
 
 @app.get("/api/site")
 def site_settings() -> dict[str, Any]:
-    """What this site allows on the shared key, for the page's notes."""
-    return {"shared_key_minutes": _shared_key_minutes, "max_shared_key_runs": MAX_SHARED_KEY_RUNS}
+    """What this site allows on the shared key, and its label, for the page."""
+    return {"shared_key_minutes": _shared_key_minutes, "max_shared_key_runs": MAX_SHARED_KEY_RUNS, "label": SITE_LABEL}
 
 
 @app.get("/api/languages")

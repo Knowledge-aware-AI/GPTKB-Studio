@@ -113,7 +113,7 @@ class SharedKeyLimitTest(SiteTestCase):
 
     def test_site_settings(self):
         with mock.patch.object(server, "_shared_key_minutes", 10), mock.patch.object(server, "MAX_SHARED_KEY_RUNS", 20):
-            self.assertEqual(self.client.get("/api/site").json(), {"shared_key_minutes": 10, "max_shared_key_runs": 20})
+            self.assertEqual(self.client.get("/api/site").json(), {"shared_key_minutes": 10, "max_shared_key_runs": 20, "label": None})
 
 
 class HardStopTest(unittest.TestCase):

@@ -246,6 +246,12 @@ const siteSettingsPromise = fetch("/api/site")
   .then((response) => response.json())
   .then((data) => { siteSettings = data || {}; })
   .catch(() => {});
+siteSettingsPromise.then(() => {
+  const label = document.querySelector("#site-label");
+  if (!label || !siteSettings.label) return;
+  label.textContent = siteSettings.label;
+  label.classList.remove("hidden");
+});
 
 // Folders marked read-only on the server (e.g. the demo's showcase folder)
 // are not offered as targets for new or moved runs.
