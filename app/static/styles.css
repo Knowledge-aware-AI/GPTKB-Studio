@@ -415,8 +415,7 @@ body.resizing-rail, body.resizing-panes, body.resizing-columns {
   gap: 3px;
 }
 
-.tab-button,
-.rail-link {
+.tab-button {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -432,22 +431,38 @@ body.resizing-rail, body.resizing-panes, body.resizing-columns {
 }
 
 .tab-button:hover,
-.tab-button.active,
-.rail-link:hover {
+.tab-button.active {
   background: rgba(255, 255, 255, .07);
   color: #fff;
 }
 
-.tab-button svg,
-.rail-link svg {
+.tab-button svg {
   width: 14px;
   height: 14px;
   flex: none;
   opacity: .8;
 }
 
-.rail-link {
+.rail-github {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
+  color: var(--rail-text-dim);
+  font-size: 11.5px;
   text-decoration: none;
+}
+
+.rail-github:hover {
+  color: var(--rail-text);
+  text-decoration: underline;
+}
+
+.rail-github svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
 }
 
 .theme-toggle {
