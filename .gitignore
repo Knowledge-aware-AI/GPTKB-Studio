@@ -1,4 +1,5 @@
-runs/
+/runs
+/runs.before-move-*/
 __pycache__/
 *.pyc
 
