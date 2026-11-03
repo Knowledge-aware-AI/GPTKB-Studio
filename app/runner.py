@@ -511,15 +511,24 @@ _CHART_PALETTE: list[str] = [
 ]
 
 
+# Largest first; a month counts as 30 days and a year as 365.
+_DURATION_UNITS = (
+    ("y", 365 * 86400), ("mo", 30 * 86400), ("w", 7 * 86400), ("d", 86400), ("h", 3600), ("m", 60), ("s", 1),
+)
+
+
 def _format_duration(seconds: float) -> str:
-    total = max(0, int(seconds))
-    hours, remainder = divmod(total, 3600)
-    minutes, secs = divmod(remainder, 60)
-    if hours:
-        return f"{hours}h {minutes}m {secs}s"
-    if minutes:
-        return f"{minutes}m {secs}s"
-    return f"{secs}s"
+    """The largest unit of the duration and the two below it, e.g. "2d 5h 12m"
+    (formatDuration in app.js does the same)."""
+    rest = max(0, int(seconds))
+    start = next((i for i, (_, size) in enumerate(_DURATION_UNITS) if rest >= size), None)
+    if start is None:
+        return "0s"
+    parts = []
+    for unit, size in _DURATION_UNITS[start:start + 3]:
+        count, rest = divmod(rest, size)
+        parts.append(f"{count}{unit}")
+    return " ".join(parts)
 
 
 # Third-party assets copied into each run's html/ directory so the generated

@@ -272,14 +272,22 @@ function formatBytes(bytes) {
   return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
 }
 
+// Largest first; a month counts as 30 days and a year as 365 (see
+// _format_duration in runner.py).
+const DURATION_UNITS = [
+  ["y", 365 * 86400], ["mo", 30 * 86400], ["w", 7 * 86400], ["d", 86400], ["h", 3600], ["m", 60], ["s", 1],
+];
+
 function formatDuration(seconds) {
-  const total = Math.max(0, Number(seconds || 0));
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const secs = Math.floor(total % 60);
-  if (hours) return `${hours}h ${minutes}m ${secs}s`;
-  if (minutes) return `${minutes}m ${secs}s`;
-  return `${secs}s`;
+  // The largest unit of the duration and the two below it, e.g. "2d 5h 12m".
+  let rest = Math.floor(Math.max(0, Number(seconds || 0)));
+  const start = DURATION_UNITS.findIndex(([, size]) => rest >= size);
+  if (start === -1) return "0s";
+  return DURATION_UNITS.slice(start, start + 3).map(([unit, size]) => {
+    const count = Math.floor(rest / size);
+    rest -= count * size;
+    return `${count}${unit}`;
+  }).join(" ");
 }
 
 function formatCost(cost) {
