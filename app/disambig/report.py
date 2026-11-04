@@ -102,6 +102,15 @@ def _top_n(n: int, singular: str, plural: str) -> str:
     return f"The {singular}" if n == 1 else f"The {n} {plural}"
 
 
+def _clip(text: str | None, limit: int) -> str:
+    """The text, shortened at a word boundary with an ellipsis if longer than limit."""
+    text = text or ""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0].rstrip(" ,;:·")
+    return cut + "…"
+
+
 def _json_island(element_id: str, data: Any) -> str:
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     return f'<script type="application/json" id="{element_id}">{payload}</script>'
@@ -268,15 +277,15 @@ class ReportWriter:
                     "SELECT id, description FROM entities WHERE label = ? ORDER BY seq LIMIT 6", (label,)
                 ).fetchall()
                 links = "<br>".join(
-                    f'<a href="{escape(eid)}.html">{escape(eid)}</a> <span class="muted small">{escape(desc[:140])}</span>'
+                    f'<a href="{escape(eid)}.html">{escape(eid)}</a> <span class="muted small">{escape(_clip(desc, 140))}</span>'
                     for eid, desc in members
                 )
                 more = f'<br><span class="muted small">… and {count - len(members)} more</span>' if count > len(members) else ""
-                rows.append(f"<tr><td>{escape(label)}</td><td>{count}</td><td>{links}{more}</td></tr>")
+                rows.append(f'<tr><td class="nowrap">{escape(label)}</td><td>{count}</td><td>{links}{more}</td></tr>')
             homonym_html = (
                 "<h3>Labels denoting several entities (homonymy)</h3>"
                 f'<p class="small">{_top_n(len(homonym_rows), "label", "labels")} shared by the most entities.</p><div class="table-scroll"><table>'
-                "<thead><tr><th>Label</th><th>Entities</th><th>Distinguished as</th></tr></thead><tbody>"
+                "<thead><tr><th>Label</th><th class=\"nowrap\">Entities</th><th>Distinguished as</th></tr></thead><tbody>"
                 + "".join(rows) + "</tbody></table></div>"
             )
         alias_rows = self.db.execute(
@@ -289,10 +298,10 @@ class ReportWriter:
             alias_html = (
                 "<h3>Entities with the most aliases (synonymy)</h3>"
                 f'<p class="small">{_top_n(len(alias_rows), "entity", "entities")} with the most aliases.</p><div class="table-scroll"><table>'
-                "<thead><tr><th>Entity</th><th>Aliases</th><th>Merged labels</th></tr></thead><tbody>"
+                "<thead><tr><th>Entity</th><th class=\"nowrap\">Aliases</th><th>Merged labels</th></tr></thead><tbody>"
                 + "".join(
-                    f'<tr><td><a href="{escape(eid)}.html">{escape(label)}</a><span class="idref">{escape(eid)}</span></td>'
-                    f"<td>{n}</td><td>{escape((aliases or '')[:400])}</td></tr>"
+                    f'<tr><td class="nowrap"><a href="{escape(eid)}.html">{escape(label)}</a><span class="idref">{escape(eid)}</span></td>'
+                    f"<td>{n}</td><td>{escape(_clip(aliases, 400))}</td></tr>"
                     for eid, label, n, aliases in alias_rows
                 )
                 + "</tbody></table></div>"
