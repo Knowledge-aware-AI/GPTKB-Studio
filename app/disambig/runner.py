@@ -28,6 +28,7 @@ every database and index write happens on the loop thread, in order.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import threading
 import time
@@ -53,6 +54,7 @@ from app.runner import (
     resolve_reasoning_settings,
 )
 from app import endpoints, reasoning
+from app.heartbeat import Heartbeat
 from app.redact import redactor
 from app.disambig import prompts as P
 from app.disambig import store as S
@@ -205,11 +207,13 @@ class LLMClient:
         stop_event: threading.Event,
         log: Callable[[str, str], None],
         usage: UsageCounter | None = None,
+        heartbeat: Heartbeat | None = None,
     ):
         self.config = config
         self.usage = usage
         self.stop_event = stop_event
         self.log = log
+        self.heartbeat = heartbeat
         self.endpoints: dict[str, Endpoint] = {}
         self.role_endpoint: dict[str, Endpoint] = {}
         for role in ROLES:
@@ -324,7 +328,8 @@ class LLMClient:
             if reservation is None:
                 raise StopRequested()
             try:
-                raw = endpoint.client.chat.completions.with_raw_response.create(**request_args)
+                with self._tracked(ROLE_NAMES[role], self.model_label(role)):
+                    raw = endpoint.client.chat.completions.with_raw_response.create(**request_args)
                 response = raw.parse()
                 usage = getattr(response, "usage", None)
                 completion = getattr(usage, "completion_tokens", None)
@@ -360,6 +365,12 @@ class LLMClient:
                     if self.stop_event.is_set():
                         raise StopRequested() from exc
                     time.sleep(min(0.5, deadline - time.monotonic()))
+
+    def _tracked(self, task: str, model: str):
+        """Registers a request with the heartbeat while it waits for its answer."""
+        if self.heartbeat is None:
+            return contextlib.nullcontext()
+        return self.heartbeat.request(task, model, self.config.request_timeout_seconds)
 
     @staticmethod
     def _rate_limit_detail(exc: RateLimitError) -> str:
@@ -425,7 +436,13 @@ class DisambiguatedKBCRunner:
         self.pause_event = pause_event
         self.stop_event = stop_event
         self.db_path = run_dir / "knowledgeBase.db"
-        self.llm = LLMClient(config, stop_event, self._log, UsageCounter(run_dir / "usage.json"))
+        # Status lines while the log is quiet; see app/heartbeat.py.
+        self._current_text: str | None = None
+        self._last_counts: dict[str, int] = {}
+        self._heartbeat_stop = threading.Event()
+        self.heartbeat = Heartbeat(self._log, self._heartbeat_describe, self._heartbeat_stop,
+                                   paused=lambda: bool(self.pause_event and self.pause_event.is_set()))
+        self.llm = LLMClient(config, stop_event, self._log, UsageCounter(run_dir / "usage.json"), self.heartbeat)
         self.instance_of_labels = P.instance_of_labels(config.language)
         self.entity_index = VectorIndex()
         self.predicate_index = VectorIndex()
@@ -443,10 +460,16 @@ class DisambiguatedKBCRunner:
     # ---- logging / events -------------------------------------------------
 
     def _log(self, message: str, level: str = "info") -> None:
+        self.heartbeat.logged()
         self.emit({"type": "log", "level": level, "message": message, "time": time.strftime("%H:%M:%S")})
 
     def _current(self, text: str) -> None:
+        self._current_text = text
         self.emit({"type": "current_subject", "subject": text})
+
+    def _heartbeat_describe(self) -> tuple[str | None, str | None]:
+        pending = self._last_counts.get("pending", 0)
+        return self._current_text, (f"{pending:,} triples to disambiguate" if pending else None)
 
     def total_cost(self) -> float:
         with self.llm.cost_lock:
@@ -461,6 +484,7 @@ class DisambiguatedKBCRunner:
             return
         self._last_status_emit = now
         counts = S.progress_counts(self.db_path) or {}
+        self._last_counts = counts
         with self.active_lock:
             active = self.active_requests
         self.emit(
@@ -503,9 +527,11 @@ class DisambiguatedKBCRunner:
             self.db,
             self.stop_event,
             self._log,
+            self.heartbeat,
         )
         self.report = ReportWriter(self)
         self.started_at = time.monotonic()
+        self.heartbeat.start()
         final_status = "finished"
         try:
             self._log(
@@ -531,6 +557,7 @@ class DisambiguatedKBCRunner:
         except StopRequested:
             pass
         finally:
+            self._heartbeat_stop.set()
             if self.stop_event.is_set():
                 final_status = "stopped"
             try:

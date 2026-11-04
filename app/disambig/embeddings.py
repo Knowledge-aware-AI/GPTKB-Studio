@@ -11,6 +11,7 @@ numpy matrix replaces the approximate faiss index.
 
 from __future__ import annotations
 
+import contextlib
 import random
 import sqlite3
 import threading
@@ -20,7 +21,10 @@ from typing import Callable
 import numpy as np
 from openai import OpenAI
 
+from app.heartbeat import Heartbeat
+
 EMBEDDING_DIM = 1024
+REQUEST_TIMEOUT_SECONDS = 60.0
 _REQUEST_BATCH = 64
 
 
@@ -36,12 +40,14 @@ class EmbeddingClient:
         connection: sqlite3.Connection,
         stop_event: threading.Event,
         log: Callable[[str, str], None],
+        heartbeat: Heartbeat | None = None,
     ) -> None:
-        self.client = OpenAI(base_url=base_url, api_key=api_key, timeout=60.0, max_retries=0)
+        self.client = OpenAI(base_url=base_url, api_key=api_key, timeout=REQUEST_TIMEOUT_SECONDS, max_retries=0)
         self.model = model
         self.connection = connection
         self.stop_event = stop_event
         self.log = log
+        self.heartbeat = heartbeat
 
     def embed(self, texts: list[str]) -> np.ndarray:
         """Unit-length float32 vectors, one row per input text, in order."""
@@ -79,7 +85,10 @@ class EmbeddingClient:
             try:
                 # An empty string is rejected by some servers; a single space
                 # embeds as "nothing" just the same.
-                response = self.client.embeddings.create(model=self.model, input=[t or " " for t in texts])
+                tracked = (self.heartbeat.request("Embedding", self.model, REQUEST_TIMEOUT_SECONDS)
+                           if self.heartbeat else contextlib.nullcontext())
+                with tracked:
+                    response = self.client.embeddings.create(model=self.model, input=[t or " " for t in texts])
                 rows = sorted(response.data, key=lambda item: item.index)
                 out = []
                 for row in rows:

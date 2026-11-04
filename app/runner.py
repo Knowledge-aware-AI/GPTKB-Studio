@@ -22,6 +22,7 @@ from openai import OpenAI, RateLimitError
 
 from app import endpoints
 from app.redact import redactor
+from app.heartbeat import Heartbeat
 from app.usage import UsageCounter
 
 
@@ -598,6 +599,9 @@ class LocalKBCRunner:
         )
         self.rate_limiter = RequestRateLimiter(config.max_requests_per_minute)
         self.usage = UsageCounter(run_dir / "usage.json")
+        # Status lines while the log is quiet; see app/heartbeat.py.
+        self.heartbeat = Heartbeat(self._log, self._heartbeat_describe, stop_event,
+                                   paused=lambda: bool(pause_event and pause_event.is_set()))
 
         self.subject_events_path = run_dir / "subjectEvents.jsonl"
         self.triples_output_path = run_dir / "triples.jsonl"
@@ -724,6 +728,7 @@ class LocalKBCRunner:
             self._write_html_index()
 
         self._log("Knowledge extraction pipeline started.")
+        self.heartbeat.start()
         if self._is_openai_endpoint():
             self._log(
                 f"OpenAI pricing table last updated: {OPENAI_PRICING_LAST_UPDATED}. "
@@ -923,7 +928,9 @@ class LocalKBCRunner:
             if not self.rate_limiter.acquire(self.stop_event):
                 raise RuntimeError("Stopped while waiting for the LLM rate limiter.")
             try:
-                response = self.client.chat.completions.create(**request_args)
+                task = {"elicitation": "Elicitation", "ner": "NER"}.get(role, role)
+                with self.heartbeat.request(task, self.config.model, self.config.request_timeout_seconds):
+                    response = self.client.chat.completions.create(**request_args)
                 self._record_usage_cost(response)
                 self.usage.record_call(role, response)
                 return response.choices[0].message.content or ""
@@ -2348,7 +2355,13 @@ class LocalKBCRunner:
             }
         )
 
+    def _heartbeat_describe(self) -> tuple[str | None, str | None]:
+        with self.state_lock:
+            queued = len(self.subject_queue)
+        return None, (f"{queued:,} entities queued" if queued else None)
+
     def _log(self, message: str, level: str = "info") -> None:
+        self.heartbeat.logged()
         event = {
             "type": "log",
             "level": level,
