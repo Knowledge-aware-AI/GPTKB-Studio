@@ -130,6 +130,29 @@ class RunSettingsTest(SiteTestCase):
         self.assertEqual(self.client.get("/api/runs/nope/settings").status_code, 404)
 
 
+class OpenRouterKeyTest(SiteTestCase):
+    def models(self, key_check):
+        with mock.patch.object(server.urllib.request, "urlopen", key_check), \
+                mock.patch.object(server, "_openrouter_models", lambda url, key: {"data": [{"id": "m/1"}]}):
+            return self.client.post("/api/models", json={"llm_url": "https://openrouter.ai/api/v1", "api_key": "sk-or-x"})
+
+    def test_rejected_key_is_reported(self):
+        def rejected(request, timeout):
+            raise server.urllib.error.HTTPError(request.full_url, 401, "Unauthorized", {}, None)
+        response = self.models(rejected)
+        self.assertEqual(response.status_code, 401)
+        self.assertIn("Invalid OpenRouter API key", response.json()["detail"])
+
+    def test_valid_key_or_failed_check_lists_models(self):
+        class Ok:
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+        self.assertEqual(self.models(lambda request, timeout: Ok()).json(), {"models": ["m/1"]})
+        def offline(request, timeout):
+            raise OSError("network down")
+        self.assertEqual(self.models(offline).json(), {"models": ["m/1"]})
+
+
 class HardStopTest(unittest.TestCase):
     def test_server_ends_a_run_past_its_time(self):
         with tempfile.TemporaryDirectory() as tmp, \

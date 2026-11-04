@@ -561,7 +561,25 @@ def _openrouter_models(llm_url: str, api_key: str) -> dict[str, Any]:
     return data
 
 
+def _check_openrouter_key(llm_url: str, api_key: str) -> None:
+    """OpenRouter publishes its model list without checking the key, so a
+    wrong key would only fail once the run starts. Its key endpoint does
+    check it: a rejection is reported right away. Any other problem with the
+    check (network, timeout) does not block the model list."""
+    url = llm_url.strip().rstrip("/") + "/key"
+    http_request = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key.strip()}"})
+    try:
+        with urllib.request.urlopen(http_request, timeout=10):
+            return
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            raise HTTPException(status_code=401, detail="Invalid OpenRouter API key.") from exc
+    except Exception:
+        return
+
+
 def _list_openrouter_models(request: ModelsRequest) -> dict[str, Any]:
+    _check_openrouter_key(request.llm_url, request.api_key)
     try:
         data = _openrouter_models(request.llm_url, request.api_key)
     except urllib.error.HTTPError as exc:
