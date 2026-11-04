@@ -104,7 +104,10 @@ class DisambigConfig:
     max_runtime_seconds: int | None = None
     max_cost: float | None = None
     nthreads: int = 5
-    request_timeout_seconds: float = 120.0
+    # Long enough for an elicitation answer of 100+ triples from a slower
+    # model (e.g. Gemma 4 on ScaDS.AI took over two minutes for popular
+    # entities, and every timeout restarts the request from scratch).
+    request_timeout_seconds: float = 300.0
     max_requests_per_minute: int | None = None
     reasoning_effort: str | None = None
     reasoning_enabled: bool | None = None
@@ -214,8 +217,6 @@ class LLMClient:
             key = normalize_url(url)
             if key not in self.endpoints:
                 timeout = config.request_timeout_seconds
-                if key == OPENAI_URL:
-                    timeout = max(timeout, 300.0)  # GPT-5 models can take minutes
                 self.endpoints[key] = Endpoint(url, api_key, OpenAI(
                     base_url=url, api_key=api_key, timeout=timeout, max_retries=0, http_client=endpoints.http_client()))
             self.role_endpoint[role] = self.endpoints[key]

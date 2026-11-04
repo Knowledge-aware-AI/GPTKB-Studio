@@ -470,7 +470,8 @@ class KBCConfig:
     max_runtime_seconds: int | None = None
     max_cost: float | None = None
     nthreads: int = 5
-    request_timeout_seconds: float = 120.0
+    # Long answers (100+ triples) from slower models can take minutes.
+    request_timeout_seconds: float = 300.0
     classification_batch_size: int = 30
     max_requests_per_minute: int | None = None
     reasoning_effort: str | None = None
@@ -589,8 +590,6 @@ class LocalKBCRunner:
         self.pause_event = pause_event
         self.stop_event = stop_event
         client_timeout = config.request_timeout_seconds
-        if self._is_openai_gpt5_request():
-            client_timeout = max(client_timeout, 300.0)
         self.client = OpenAI(
             base_url=config.llm_url,
             api_key=config.api_key,
