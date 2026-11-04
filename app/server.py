@@ -1787,6 +1787,22 @@ def _stop_controller(ctrl: RunController, message: str = "Run process killed.") 
     })
 
 
+# Settings of a run that a tab's form can show again (Watch, Resume). The
+# saved runConfig.json has no API keys ("***" at most), and the fields after
+# the form's own are bookkeeping, so they are left out.
+_RUN_SETTINGS_EXCLUDED = {"api_key", "folder_id", "started_at", "resumed_at", "ended_at", "error",
+                          "estimated_cost_usd", "stopped_by_user", "embedding_model"}
+
+
+@app.get("/api/runs/{run_id}/settings")
+def run_settings(run_id: str) -> dict[str, Any]:
+    run_dir = _resolve_run_dir(run_id)
+    config = _read_json(run_dir / "runConfig.json")
+    if not isinstance(config, dict):
+        raise HTTPException(status_code=404, detail="Run not found.")
+    return {key: value for key, value in config.items() if key not in _RUN_SETTINGS_EXCLUDED}
+
+
 @app.get("/api/runs/{run_id}/status")
 def run_status(run_id: str) -> dict[str, Any]:
     ctrl = _viewing_controller(run_id)

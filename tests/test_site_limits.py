@@ -116,6 +116,20 @@ class SharedKeyLimitTest(SiteTestCase):
             self.assertEqual(self.client.get("/api/site").json(), {"shared_key_minutes": 10, "max_shared_key_runs": 20, "label": None})
 
 
+class RunSettingsTest(SiteTestCase):
+    def test_settings_without_key_or_bookkeeping(self):
+        run_dir = self.make_run("r1")
+        config = json.loads((run_dir / "runConfig.json").read_text())
+        config.update(api_key="***", started_at="2026-11-04T10:00:00", folder_id="f1")
+        (run_dir / "runConfig.json").write_text(json.dumps(config))
+        settings = self.client.get("/api/runs/r1/settings").json()
+        self.assertEqual(settings["topic"], "t")
+        self.assertEqual(settings["seed_entity"], "s")
+        for field in ("api_key", "started_at", "folder_id"):
+            self.assertNotIn(field, settings)
+        self.assertEqual(self.client.get("/api/runs/nope/settings").status_code, 404)
+
+
 class HardStopTest(unittest.TestCase):
     def test_server_ends_a_run_past_its_time(self):
         with tempfile.TemporaryDirectory() as tmp, \

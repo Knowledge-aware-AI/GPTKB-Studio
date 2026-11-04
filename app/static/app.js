@@ -635,6 +635,12 @@ function buildTabController(tabId, root) {
   let modelsRequestToken = 0;
   let modelsDebounceTimer = null;
   let promptPreviewDebounceTimer = null;
+  // Bumped by every preview request and when a run's settings fill the form,
+  // so a preview that answers late never replaces the run's own prompt.
+  let promptPreviewToken = 0;
+  // Values from a run's settings whose options are still loading.
+  let wantedModel = null;
+  let wantedLanguage = null;
   let currentRunId = null;
   let eventSource = null;
   let lastKnownStatus = null;
@@ -874,10 +880,84 @@ function buildTabController(tabId, root) {
   // from a known zero); otherwise (restored from storage, or opened via
   // Watch) an existing snapshot is fetched first so the panel doesn't sit
   // empty until the next live event happens to fire.
-  async function watchRun(runId, { isNewRun = false, startedAt = null } = {}) {
+  // Fills the form with the settings a run was started or last resumed with,
+  // so a tab opened on a run (Watch, Resume, a restored tab) shows that run's
+  // configuration. API keys are never stored, so that field stays empty.
+  async function loadRunSettings(runId) {
+    let settings;
+    try {
+      const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/settings`);
+      if (!response.ok) return;
+      settings = await response.json();
+    } catch (error) {
+      return;
+    }
+    if (currentRunId !== runId) return;
+    const set = (name, value) => {
+      const field = form.elements[name];
+      if (field && value !== undefined && value !== null) field.value = value;
+    };
+    const setLimit = (checkbox, name, value) => {
+      form.elements[checkbox].checked = value !== undefined && value !== null;
+      form.elements[name].value = value ?? "";
+    };
+
+    promptPreviewToken += 1;
+    set("topic", settings.topic);
+    set("seed_entity", settings.seed_entity);
+    if (settings.facts_multiplier !== undefined) {
+      factsSlider.value = settings.facts_multiplier;
+      tripleLabel.textContent = sliderName(Number(factsSlider.value));
+    }
+    const schemaMode = settings.schema_mode || "open";
+    root.querySelectorAll('input[name="schema_mode"]').forEach((radio) => { radio.checked = radio.value === schemaMode; });
+    schemaDetails.classList.toggle("hidden", schemaMode === "open");
+    schemaTextArea.value = settings.schema_text || "";
+    // An empty prompt_template means the run used the generated prompt.
+    setLimit("use_entities", "max_entities", settings.max_entities);
+    setLimit("use_bfs", "max_bfs_depth", settings.max_bfs_depth);
+    setLimit("use_cost", "max_cost", settings.max_cost);
+    setLimit("use_runtime", "max_runtime_seconds", settings.max_runtime_seconds);
+    set("nthreads", settings.nthreads);
+    set("ned_candidates", settings.ned_candidates);
+    form.elements.max_requests_per_minute.value = settings.max_requests_per_minute ?? "";
+    const floorIndex = MERGE_SIMILARITY_FLOORS.indexOf(Number(settings.ned_similarity_floor || 0));
+    mergeSlider.value = String(Math.max(0, floorIndex));
+    mergeLabel.textContent = mergeSliderLabel(Number(mergeSlider.value));
+
+    wantedLanguage = settings.language || "en";
+    if ([...languageSelect.options].some((option) => option.value === wantedLanguage)) {
+      languageSelect.value = wantedLanguage;
+      wantedLanguage = null;
+    }
+    if (settings.prompt_template) promptPreview.value = settings.prompt_template;
+    else refreshPromptPreview();
+
+    // Endpoint and model: the model list loads asynchronously, so the wanted
+    // model (and the NER/NED choices) are kept until their options arrive.
+    if (settings.llm_url) {
+      const mainUrl = normalizeUrl(settings.llm_url);
+      llmUrl.value = settings.llm_url;
+      wantedModel = settings.model || null;
+      modelInput.value = settings.model || "";
+      rolePickers.forEach((picker) => {
+        const model = settings[`${picker.name}_model`];
+        const url = normalizeUrl(settings[`${picker.name}_llm_url`] || settings.llm_url);
+        const sameAsMain = !model || (model === settings.model && url === mainUrl);
+        picker.userChose = !sameAsMain;
+        picker.wanted = sameAsMain ? null : roleOptionValue(url, model);
+      });
+      syncEndpointSelectionFromUrl();
+      updateModelControl();
+    }
+    updateFreeKeyNote();
+  }
+
+  async function watchRun(runId, { isNewRun = false, startedAt = null, loadSettings = true } = {}) {
     currentRunId = runId;
     tab.pendingLabel = null;
     resetLogs();
+    if (loadSettings) loadRunSettings(runId);
     currentSubjectEl.textContent = "No active subject";
     paused = false;
     pauseButton.textContent = "Pause";
@@ -939,7 +1019,7 @@ function buildTabController(tabId, root) {
       const response = await postJSON("/api/run", payload);
       tab.pendingLabel = payload.topic || payload.seed_entity || null;
       setHtmlIndexLink(response.html_index_url);
-      await watchRun(response.run_id, { isNewRun: true, startedAt: response.started_at });
+      await watchRun(response.run_id, { isNewRun: true, startedAt: response.started_at, loadSettings: false });
       loadRuns();
       if (payload.new_folder_name) {
         await loadFolders();
@@ -995,7 +1075,8 @@ function buildTabController(tabId, root) {
   }
 
   function setModelOptions(models) {
-    const previousValue = modelInput.value || modelSelect.value;
+    const previousValue = wantedModel || modelInput.value || modelSelect.value;
+    if (models.includes(wantedModel)) wantedModel = null;
     modelSelect.innerHTML = "";
     // No default elicitation model: the empty first option keeps the
     // (required) select invalid until the user picks one.
@@ -1066,7 +1147,7 @@ function buildTabController(tabId, root) {
     if (mainUrl !== SCADS_ENDPOINT && endpointModels.length) groups.push([mainUrl, endpointModels]);
     if (scadsModels.length) groups.push([SCADS_ENDPOINT, scadsModels]);
     rolePickers.forEach((picker) => {
-      const previousValue = picker.select.value;
+      const previousValue = picker.wanted || picker.select.value;
       picker.select.innerHTML = "";
       const blank = document.createElement("option");
       blank.value = "";
@@ -1097,6 +1178,7 @@ function buildTabController(tabId, root) {
         picker.select.appendChild(group);
       });
       picker.select.value = picker.userChose && values.has(previousValue) ? previousValue : "";
+      if (values.has(picker.wanted)) picker.wanted = null;
       syncRoleCustomInput(picker);
     });
     updateFreeKeyNote();
@@ -1369,7 +1451,8 @@ function buildTabController(tabId, root) {
 
   getLanguages().then((languages) => {
     if (!languages.length) return;
-    const previousValue = languageSelect.value || "en";
+    const previousValue = wantedLanguage || languageSelect.value || "en";
+    wantedLanguage = null;
     languageSelect.innerHTML = "";
     languages.forEach((language) => {
       const option = document.createElement("option");
@@ -1415,15 +1498,16 @@ function buildTabController(tabId, root) {
   });
 
   async function refreshPromptPreview() {
+    const token = ++promptPreviewToken;
     try {
       const response = await postJSON("/api/prompt-preview", {
-        language: languageSelect.value || "en",
+        language: wantedLanguage || languageSelect.value || "en",
         topic: topicInput.value,
         facts_multiplier: Number(factsSlider.value),
         schema_mode: root.querySelector('input[name="schema_mode"]:checked')?.value || "open",
         schema_text: schemaTextArea.value || "",
       });
-      promptPreview.value = response.prompt;
+      if (token === promptPreviewToken) promptPreview.value = response.prompt;
     } catch (error) {
       // Leave whatever is currently in the box untouched if the preview call fails.
     }
