@@ -618,6 +618,12 @@ body.resizing-rail, body.resizing-panes, body.resizing-columns {
   display: inline-block;
 }
 
+.html-index-link.disabled {
+  opacity: 0.45;
+  pointer-events: none;
+  cursor: default;
+}
+
 .hero-metrics {
   display: flex;
   gap: 22px;

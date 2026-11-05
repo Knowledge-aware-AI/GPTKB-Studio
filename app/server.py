@@ -1445,9 +1445,14 @@ def _run_summary(run_dir: Path) -> dict[str, Any]:
         off_domain_count = _count_lines(run_dir / "offDomainEntities.jsonl")
 
     cost_usd = config.get("estimated_cost_usd")
-    if cost_usd is None and db_counts is not None:
-        # Written by the runner itself as it goes, so it survives a Stop.
-        cost_usd = db_counts.get("cost_usd")
+    if db_counts is not None:
+        # The same total as the run's report: the live one while the run
+        # goes, else what the runner saved in its database (cumulative over
+        # resumes, saved as it goes, so it survives a Stop). The value cached
+        # in runConfig.json at the end of a session is only a fallback: it
+        # goes stale after a resume.
+        live = _latest_live_cost(ctrl) if active and ctrl is not None else None
+        cost_usd = next((c for c in (live, db_counts.get("cost_usd"), cost_usd) if c is not None), None)
     elif cost_usd is None:
         cost_usd = _estimate_run_cost(run_dir, config)
         if cost_usd is not None and not active:
@@ -1829,13 +1834,25 @@ def run_status(run_id: str) -> dict[str, Any]:
     return ctrl.snapshot()
 
 
+ZIP_REPORT_LINK = "REPORT.html"
+_ZIP_REPORT_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="refresh" content="0; url=html/index.html">
+<title>GPTKB Studio report</title></head>
+<body><p>Opening the report: <a href="html/index.html">html/index.html</a>.</p></body></html>
+"""
+
+
 def _zip_directory(directory: Path) -> bytes:
     """Zips every file under `directory`, with archive paths relative to it
     (so extracting lands the contents at the zip's root, not nested inside a
-    directory-name folder).
+    directory-name folder). A run's report is html/index.html, among
+    thousands of entity pages; REPORT.html at the root leads to it.
     """
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        if (directory / "html" / "index.html").is_file() and not (directory / ZIP_REPORT_LINK).exists():
+            archive.writestr(ZIP_REPORT_LINK, _ZIP_REPORT_PAGE)
         for file_path in sorted(directory.rglob("*")):
             if file_path.is_file():
                 archive.write(file_path, arcname=str(file_path.relative_to(directory)))

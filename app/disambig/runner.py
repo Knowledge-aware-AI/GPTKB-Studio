@@ -55,6 +55,7 @@ from app.runner import (
 )
 from app import endpoints, reasoning
 from app.heartbeat import Heartbeat
+from app.llm_errors import ContextWindowExceeded, context_window_error, cut_off_error
 from app.redact import redactor
 from app.disambig import prompts as P
 from app.disambig import store as S
@@ -339,25 +340,32 @@ class LLMClient:
                 self._record_cost(model, endpoint, response)
                 if self.usage:
                     self.usage.record_call(role, response)
-                return response.choices[0].message.content or ""
             except Exception as exc:
                 if isinstance(exc, RateLimitError) and getattr(exc, "response", None) is not None:
                     self.throttle.record(throttle_key, task, None, None, exc.response.headers)
                 if self.stop_event.is_set():
                     raise StopRequested() from exc
+                too_long = context_window_error(exc, self.model_label(role))
+                if too_long is not None:
+                    raise too_long from exc  # the same prompt fails again: no retry
                 attempt += 1
                 if self.usage:
                     self.usage.record_retry(role, isinstance(exc, RateLimitError))
-                if attempt > max_retries:
-                    raise
-                delay = self._retry_delay(exc, attempt)
                 if isinstance(exc, RateLimitError):
                     reason = f"rate limit hit{self._rate_limit_detail(exc)}"
                 else:
                     reason = f"{type(exc).__name__}: {str(exc)[:160]}"
+                if attempt > max_retries:
+                    self.log(
+                        f"{ROLE_NAMES[role]} request to {self.model_label(role)} failed ({reason}); "
+                        f"no retries left (tried {max_retries + 1} times).",
+                        "warning",
+                    )
+                    raise
+                delay = self._retry_delay(exc, attempt)
                 self.log(
                     f"{ROLE_NAMES[role]} request to {self.model_label(role)} failed ({reason}); "
-                    f"retrying in {delay:.1f}s (attempt {attempt}/{max_retries}).",
+                    f"retry {attempt} of {max_retries} in {delay:.1f}s.",
                     "warning",
                 )
                 deadline = time.monotonic() + delay
@@ -365,6 +373,12 @@ class LLMClient:
                     if self.stop_event.is_set():
                         raise StopRequested() from exc
                     time.sleep(min(0.5, deadline - time.monotonic()))
+                continue
+            if role == "elicitation":
+                cut_off = cut_off_error(response, self.model_label(role))
+                if cut_off is not None:
+                    raise cut_off
+            return response.choices[0].message.content or ""
 
     def _tracked(self, task: str, model: str):
         """Registers a request with the heartbeat while it waits for its answer."""
@@ -512,6 +526,9 @@ class DisambiguatedKBCRunner:
         rate-limited disambiguation). Called on the loop thread only, between
         model answers, so the report reads a consistent database."""
         if time.monotonic() - self._last_report >= REPORT_INTERVAL_SECONDS:
+            # The run row carries the cost so far: saved with every report, a
+            # run that is killed keeps its cost (and a resume continues from it).
+            self._write_run_row("running")
             self.report.write()
             self._last_report = time.monotonic()
 
@@ -602,10 +619,7 @@ class DisambiguatedKBCRunner:
                 did_work = True
 
             self._emit_status("running")
-            if time.monotonic() - self._last_report >= REPORT_INTERVAL_SECONDS:
-                self._write_run_row("running")
-                self.report.write()
-                self._last_report = time.monotonic()
+            self._maybe_write_report()
 
             if did_work:
                 idle_rounds = 0
@@ -627,7 +641,7 @@ class DisambiguatedKBCRunner:
             self.stop_event.set()
             return True
         if self.config.max_cost is not None and self.total_cost() >= self.config.max_cost:
-            self._log(f"Cost limit reached (${self.total_cost():.4f} spent, limit ${self.config.max_cost:.2f}).")
+            self._log(f"Cost limit reached (${self.total_cost():.2f} spent, limit ${self.config.max_cost:.2f}).")
             self.stop_event.set()
             return True
         return False
@@ -845,13 +859,33 @@ class DisambiguatedKBCRunner:
         row = self.db.execute(f"SELECT attempts FROM {table} WHERE {key_column} = ?", (key,)).fetchone()
         return int(row[0]) if row else 0
 
+    STAGE_NAMES = {
+        "ner": "NER", "ned1": "Triple-context NED", "nedg": "Description generation", "ned2": "Description-context NED",
+        "pd": "Relation disambiguation", "pdg": "Relation description", "cd": "Class disambiguation",
+        "cdg": "Class description",
+    }
+
+    def _attempt_failed(self, table: str, key_column: str, key: str, stage: str, label: str, error: str) -> bool:
+        """Counts a failed request/answer against an item and logs which
+        attempt it was; True once the item has used up its attempts."""
+        attempt = self._bump_attempts(table, key_column, key)
+        name = self.STAGE_NAMES.get(stage, stage)
+        if attempt >= self.config.max_attempts:
+            self._log(f"{name}: giving up on '{label}' after {attempt} failed attempts ({error[:120]}).", "warning")
+            return True
+        self._log(
+            f"{name} failed for '{label}' ({error[:120]}); attempt {attempt} of {self.config.max_attempts}, "
+            f"will try again.",
+            "warning",
+        )
+        return False
+
     def _triple_failed(self, triple: dict[str, Any], stage: str, error: str, detail: str | None, give_up: dict[str, Any]) -> None:
         """Counts a failed request/answer against a triple; after max_attempts
         the triple leaves its stage with `give_up` applied."""
-        if self._bump_attempts("triples", "id", triple["id"]) >= self.config.max_attempts:
+        if self._attempt_failed("triples", "id", triple["id"], stage, triple["object_label"], error):
             self._update_triple(triple["id"], attempts=0, **give_up)
             self._record_failure(triple["object_label"], stage, error, detail)
-            self._log(f"{stage}: giving up on '{triple['object_label']}' in triple {triple['id']} ({error[:120]}).", "warning")
 
     @staticmethod
     def _rows(cursor) -> list[dict[str, Any]]:
@@ -937,18 +971,44 @@ class DisambiguatedKBCRunner:
 
         explored = stored = 0
         for entity, output, error in self._fan_out("elicitation", entities, build):
+            if isinstance(error, ContextWindowExceeded) and error.text:
+                # A cut-off answer is usually unparsable, but a model may have
+                # finished the JSON and gone on talking: keep what parses.
+                try:
+                    facts = P.parse_elicitation(error.text)
+                    output, error = error.text, None
+                except Exception:
+                    pass
             try:
                 if error:
                     raise error
                 facts = P.parse_elicitation(output or "")
             except Exception as exc:
+                if isinstance(exc, ContextWindowExceeded):
+                    # The same prompt does not fit next time either.
+                    self.db.execute("UPDATE entities SET status = 'failed' WHERE id = ?", (entity["id"],))
+                    self._record_failure(entity["label"], "context_window", str(exc), exc.text)
+                    self._log(
+                        f"Giving up on {entity['label']}: {exc}. Asking again would fail the same way; a model "
+                        f"with a larger context window, fewer triples per entity or a shorter prompt avoids this.",
+                        "error",
+                    )
+                    self.db.commit()
+                    continue
                 stage = "llm_request" if error else "json_parse"
-                if self._bump_attempts("entities", "id", entity["id"]) >= self.config.max_attempts:
+                attempt = self._bump_attempts("entities", "id", entity["id"])
+                if attempt >= self.config.max_attempts:
                     self.db.execute("UPDATE entities SET status = 'failed' WHERE id = ?", (entity["id"],))
                     self._record_failure(entity["label"], stage, str(exc), None if error else output)
-                    self._log(f"Giving up on {entity['label']} after repeated failures ({str(exc)[:120]}).", "error")
+                    self._log(
+                        f"Giving up on {entity['label']} after {attempt} failed attempts ({str(exc)[:120]}).", "error"
+                    )
                 else:
-                    self._log(f"Elicitation failed for {entity['label']} ({str(exc)[:120]}); will retry.", "warning")
+                    self._log(
+                        f"Elicitation failed for {entity['label']} ({str(exc)[:120]}); attempt {attempt} of "
+                        f"{self.config.max_attempts}, will try again.",
+                        "warning",
+                    )
                 self.db.commit()
                 continue
             count = self._commit_new_triples(entity, facts)
@@ -1470,7 +1530,7 @@ class DisambiguatedKBCRunner:
         return True
 
     def _predicate_failed(self, triple: dict[str, Any], stage: str, error: str, detail: str | None) -> None:
-        if self._bump_attempts("triples", "id", triple["id"]) >= self.config.max_attempts:
+        if self._attempt_failed("triples", "id", triple["id"], stage, triple["predicate_label"], error):
             # Give the triple a relation of its own rather than drop it.
             self._update_triple(triple["id"], predicate_status=S.PRED_PD_FINISHED, attempts=0)
             self._record_failure(triple["predicate_label"], stage, error, detail)
@@ -1495,7 +1555,7 @@ class DisambiguatedKBCRunner:
                     raise error
                 described.append((triple, P.parse_description(output or "")))
             except Exception as exc:
-                if self._bump_attempts("triples", "id", triple["id"]) >= self.config.max_attempts:
+                if self._attempt_failed("triples", "id", triple["id"], "pdg", triple["predicate_label"], str(exc)):
                     described.append((triple, f"Indicates the relation '{triple['predicate_label']}'."))
                     self._record_failure(triple["predicate_label"], "pdg", str(exc), output)
                 self.db.commit()
@@ -1663,7 +1723,7 @@ class DisambiguatedKBCRunner:
         self.dirty_entities.add(item["entity_id"])
 
     def _concept_failed(self, item: dict[str, Any], stage: str, error: str, detail: str | None) -> None:
-        if self._bump_attempts("instance_triples", "triple_id", item["triple_id"]) >= self.config.max_attempts:
+        if self._attempt_failed("instance_triples", "triple_id", item["triple_id"], stage, item["concept_label"], error):
             self.db.execute(
                 "UPDATE instance_triples SET status = 'cd_finished', attempts = 0 WHERE triple_id = ?", (item["triple_id"],)
             )
@@ -1689,7 +1749,7 @@ class DisambiguatedKBCRunner:
                     raise error
                 described.append((item, P.parse_description(output or "")))
             except Exception as exc:
-                if self._bump_attempts("instance_triples", "triple_id", item["triple_id"]) >= self.config.max_attempts:
+                if self._attempt_failed("instance_triples", "triple_id", item["triple_id"], "cdg", item["concept_label"], str(exc)):
                     described.append((item, f"The class of {item['concept_label']}."))
                     self._record_failure(item["concept_label"], "cdg", str(exc), output)
                 self.db.commit()

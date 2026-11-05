@@ -226,7 +226,8 @@ class ReportWriter:
             limits.append(f"Max runtime: {_format_duration(config.max_runtime_seconds)}")
         if config.max_cost:
             limits.append(f"Max cost: ${config.max_cost:,.2f}")
-        cost = f"${runner.total_cost():,.4f}" if runner._cost_tracked() else "Not tracked"
+        total = runner.total_cost()
+        cost = ("<$0.01" if 0 < total < 0.01 else f"${total:,.2f}") if runner._cost_tracked() else "Not tracked"
         config_items = [
             ("Elicitation model", runner.llm.model_label("elicitation")),
             ("NER model", runner.llm.model_label("ner")),
@@ -307,11 +308,11 @@ class ReportWriter:
                 + "</tbody></table></div>"
             )
 
-        if stats["unexplored"]:
-            status_note = f"{stats['unexplored']:,} entities still waiting to be explored"
-        else:
-            status_note = "All discovered entities have been explored"
-        status_note += f", {stats['pending']:,} triples still being disambiguated." if stats["pending"] else "."
+        pending, unexplored = stats["pending"], stats["unexplored"]
+        status_note = (
+            f"{pending:,} object{'' if pending == 1 else 's'} still being disambiguated. "
+            f"{unexplored:,} entit{'y' if unexplored == 1 else 'ies'} waiting to be explored."
+        )
         if stats["empty_entities"]:
             status_note += (
                 f" {stats['empty_entities']:,} explored entities returned no facts (unknown to the model or off-topic)."

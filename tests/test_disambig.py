@@ -21,6 +21,7 @@ import numpy as np
 from app.disambig import prompts as P
 from app.disambig.embeddings import EMBEDDING_DIM, EmbeddingClient, VectorIndex, cluster_labels
 from app.disambig.runner import DisambigConfig, DisambiguatedKBCRunner, LLMClient
+from app.llm_errors import ContextWindowExceeded
 
 # No real model endpoint is ever called: reasoning-capability probing
 # (app/reasoning.py, tested in test_reasoning.py) is switched off here.
@@ -254,6 +255,49 @@ class RunnerTest(unittest.TestCase):
         self.assertEqual(
             db.execute("SELECT COUNT(*) FROM triples WHERE object_status != 'finished'").fetchone()[0], 0
         )
+
+    def run_with_elicitation(self, answer):
+        """Runs the pipeline with every elicitation request answered by `answer(user)`."""
+        fake = FakeLLM()
+        calls = []
+
+        def chat(self, role, system, user, max_retries=5):
+            if role == "elicitation":
+                calls.append(user)
+                return answer(user, fake)
+            return fake(role, system, user)
+
+        tmp = Path(tempfile.mkdtemp())
+        run_dir = tmp / "run"
+        run_dir.mkdir()
+        (run_dir / "runConfig.json").write_text("{}")
+        config = DisambigConfig(llm_url="http://fake/v1", api_key="x", model="fake", topic="French cinema",
+                                seed_entity="Mathieu Amalric", max_entities=3)
+        events = []
+        originals = (LLMClient.chat, EmbeddingClient._request)
+        LLMClient.chat = chat
+        EmbeddingClient._request = lambda self, texts, max_retries=6: fake_embeddings(texts)
+        try:
+            DisambiguatedKBCRunner(config, run_dir, events.append, threading.Event(), threading.Event()).run()
+        finally:
+            LLMClient.chat, EmbeddingClient._request = originals
+        return sqlite3.connect(run_dir / "knowledgeBase.db"), events, calls
+
+    def test_context_window_gives_up_at_once(self):
+        def too_long(user, fake):
+            raise ContextWindowExceeded("the prompt does not fit the context window of fake")
+        db, events, calls = self.run_with_elicitation(too_long)
+        self.assertEqual(len(calls), 1)  # neither the request nor the entity is tried again
+        self.assertEqual(db.execute("SELECT stage FROM failures").fetchall(), [("context_window",)])
+        logs = [e["message"] for e in events if e["type"] == "log"]
+        self.assertTrue(any("larger context window" in m for m in logs))
+
+    def test_cut_off_answer_that_parses_is_kept(self):
+        def cut_off(user, fake):
+            raise ContextWindowExceeded("cut off", text=fake("elicitation", "", user) + "\nAnd also")
+        db, _, calls = self.run_with_elicitation(cut_off)
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM failures").fetchone()[0], 0)
+        self.assertGreater(db.execute("SELECT COUNT(*) FROM triples").fetchone()[0], 0)
 
     def test_resume_is_idempotent(self):
         run_dir, _, _ = self.run_pipeline()

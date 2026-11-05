@@ -23,6 +23,7 @@ from openai import OpenAI, RateLimitError
 from app import endpoints
 from app.redact import redactor
 from app.heartbeat import Heartbeat
+from app.llm_errors import ContextWindowExceeded, context_window_error
 from app.usage import UsageCounter
 
 
@@ -878,7 +879,10 @@ class LocalKBCRunner:
             # not a failed entity, so it's excluded from the failure log and
             # the subject gets re-queued by _worker's own stop check instead
             # of being abandoned.
-            if not self.stop_event.is_set():
+            if isinstance(exc, ContextWindowExceeded):
+                self._record_failure(subject, "context_window", str(exc))
+                self._log(f"Giving up on {subject}: {exc}.", level="error")
+            elif not self.stop_event.is_set():
                 self._record_failure(subject, "llm_request", str(exc))
                 self._log(
                     f"Giving up on {subject} after repeated LLM failures ({exc}); skipping it and continuing.",
@@ -937,14 +941,19 @@ class LocalKBCRunner:
             except Exception as exc:
                 if self.stop_event.is_set():
                     raise
+                too_long = context_window_error(exc, self.config.model)
+                if too_long is not None:
+                    raise too_long from exc  # the same prompt fails again: no retry
                 attempt += 1
                 self.usage.record_retry(role, isinstance(exc, RateLimitError))
+                reason = f"{type(exc).__name__}: {str(exc)[:160]}"
                 if attempt > max_retries:
+                    self._log(f"LLM request failed ({reason}); no retries left (tried {max_retries + 1} times).",
+                              level="warning")
                     raise
                 delay = self._retry_delay(exc, attempt)
                 self._log(
-                    f"LLM request failed ({type(exc).__name__}: {str(exc)[:160]}); "
-                    f"retrying in {delay:.1f}s (attempt {attempt}/{max_retries}).",
+                    f"LLM request failed ({reason}); retry {attempt} of {max_retries} in {delay:.1f}s.",
                     level="warning",
                 )
                 if not self._sleep_or_stop(delay):
@@ -1651,6 +1660,7 @@ class LocalKBCRunner:
         failure_stage_labels = {
             "llm_request": "LLM request",
             "json_parse": "Response parsing",
+            "context_window": "Context window",
             "processing": "Processing",
         }
         failures_rows = "\n".join(
@@ -2320,7 +2330,7 @@ class LocalKBCRunner:
                 with self.state_lock:
                     current_cost = self.total_cost_usd
                 if current_cost >= self.config.max_cost:
-                    self._log(f"Cost limit reached (${current_cost:.4f} spent, limit ${self.config.max_cost:.2f}).")
+                    self._log(f"Cost limit reached (${current_cost:.2f} spent, limit ${self.config.max_cost:.2f}).")
                     return True
         return False
 

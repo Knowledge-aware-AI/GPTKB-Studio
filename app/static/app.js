@@ -733,7 +733,6 @@ function buildTabController(tabId, root) {
     lastKnownStatus = status.status;
     setStatus(status.status);
     root.querySelector('[data-role="processed"]').textContent = Number(status.processed || 0);
-    root.querySelector('[data-role="queued"]').textContent = Number(status.queued || 0);
     root.querySelector('[data-role="triples"]').textContent = status.triples || 0;
     // Not reported by runs of the original pipeline (no disambiguation).
     root.querySelector('[data-role="pending"]').textContent = status.pending ?? "-";
@@ -834,7 +833,9 @@ function buildTabController(tabId, root) {
   function setHtmlIndexLink(url) {
     if (!url) return;
     htmlIndexLink.href = url;
-    htmlIndexLink.classList.remove("hidden");
+    htmlIndexLink.classList.remove("disabled");
+    htmlIndexLink.removeAttribute("aria-disabled");
+    htmlIndexLink.title = "The run's report, entity pages and graph (updated while it runs)";
   }
 
   function connectEvents(runId) {
@@ -955,6 +956,8 @@ function buildTabController(tabId, root) {
 
   async function watchRun(runId, { isNewRun = false, startedAt = null, loadSettings = true } = {}) {
     currentRunId = runId;
+    // The results link belongs to the run, whatever its state (running, paused, finished, idle).
+    setHtmlIndexLink(`/runs/${encodeURIComponent(runId)}/html/index.html`);
     tab.pendingLabel = null;
     resetLogs();
     if (loadSettings) loadRunSettings(runId);
