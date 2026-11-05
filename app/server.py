@@ -276,7 +276,10 @@ def rate_limited(limiter: EndpointRateLimiter):
 # Endpoints that trigger real work (spawning a run, calling an external LLM
 # API for model listing) get tighter caps than the ones the UI just polls.
 _run_control_limiter = EndpointRateLimiter(max_calls=10, window_seconds=60)
-_models_limiter = EndpointRateLimiter(max_calls=10, window_seconds=60)
+# A page load alone lists models once per model picker in every open tab
+# and checks each model's reasoning settings, so these allow a busy page.
+_models_limiter = EndpointRateLimiter(max_calls=60, window_seconds=60)
+_reasoning_limiter = EndpointRateLimiter(max_calls=60, window_seconds=60)
 _prompt_preview_limiter = EndpointRateLimiter(max_calls=60, window_seconds=60)
 
 
@@ -594,7 +597,7 @@ def _list_openrouter_models(request: ModelsRequest) -> dict[str, Any]:
 _NO_REASONING_CAPABILITY = {"toggle": None, "effort": None}
 
 
-@app.post("/api/reasoning-capability", dependencies=[Depends(rate_limited(_models_limiter))])
+@app.post("/api/reasoning-capability", dependencies=[Depends(rate_limited(_reasoning_limiter))])
 def reasoning_capability(request: ReasoningCapabilityRequest) -> dict[str, Any]:
     """Whether this model+endpoint has a tunable reasoning effort and/or an
     on/off switch, so the dashboard can show the matching control(s) --
