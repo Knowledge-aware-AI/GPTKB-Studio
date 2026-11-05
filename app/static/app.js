@@ -1619,7 +1619,7 @@ function buildFolderRow(group, groupRuns, isCollapsed) {
   const row = document.createElement("tr");
   row.className = "folder-row";
   const groupCell = document.createElement("td");
-  groupCell.colSpan = 14;
+  groupCell.colSpan = 13;
 
   const toggle = document.createElement("button");
   toggle.type = "button";
@@ -1747,7 +1747,6 @@ function buildRunRow(run) {
   row.appendChild(cell(formatCost(run.cost_usd)));
   row.appendChild(cell(formatDuration(run.duration_seconds)));
   row.appendChild(cell(run.processed));
-  row.appendChild(cell(run.queued));
   row.appendChild(cell(run.triples));
 
 
@@ -1871,7 +1870,7 @@ function renderRuns(runs) {
   if (!runs.length && !cachedFoldersList.length) {
     const row = document.createElement("tr");
     const td = cell("No runs yet.");
-    td.colSpan = 14;
+    td.colSpan = 13;
     row.appendChild(td);
     runsBody.appendChild(row);
     renderTabStrip();
@@ -1919,7 +1918,7 @@ async function loadRuns() {
     runsBody.innerHTML = "";
     const row = document.createElement("tr");
     const td = cell(`Could not load runs: ${error.message}`);
-    td.colSpan = 14;
+    td.colSpan = 13;
     row.appendChild(td);
     runsBody.appendChild(row);
   }
