@@ -499,13 +499,20 @@ class ReportWriter:
         ).fetchall()
         out_rows = []
         for p_label, raw_p, p_id, o_label, o_id, o_type, o_status, resolution, o_entity_label in outgoing:
-            predicate = escape(p_label) + (f'<span class="idref">{escape(p_id)}</span>' if p_id else "")
-            if raw_p != p_label:
-                predicate += f'<br><span class="muted small">as "{escape(raw_p)}"</span>'
+            # What the model said comes first; what it was linked to (which
+            # may be a wrong merge) follows, smaller, so that errors are
+            # visible as such rather than emphasized.
+            canonical_p = escape(p_label) + (f'<span class="idref">{escape(p_id)}</span>' if p_id else "")
+            if raw_p and raw_p != p_label:
+                predicate = f'{escape(raw_p)}<br><span class="muted small">linked to {canonical_p}</span>'
+            else:
+                predicate = canonical_p
             if o_id:
-                obj = self._entity_link(o_id, o_entity_label or o_label)
+                link = self._entity_link(o_id, o_entity_label or o_label)
                 if o_entity_label and o_entity_label != o_label:
-                    obj += f'<br><span class="muted small">mentioned as "{escape(o_label)}"</span>'
+                    obj = f'{escape(o_label)}<br><span class="muted small">linked to {link}</span>'
+                else:
+                    obj = link
             else:
                 obj = escape(o_label)
             kind = {"ne": "entity", "literal": "literal", "class": "class"}.get(o_type, "pending")
