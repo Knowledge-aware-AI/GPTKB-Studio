@@ -566,6 +566,9 @@ class DisambiguatedKBCRunner:
                 self._log("The cost of some selected models is unknown; ignoring the cost limit.", "warning")
                 self.config.max_cost = None
 
+            # The cost of earlier sessions first, so that the first status
+            # update of a resumed run does not report $0.
+            self.cost_before_session = float(S.get_meta(self.db, "cost_usd", "0") or 0)
             self._emit_status("running", force=True)
             self._load_or_seed()
             self._write_run_row("running")
