@@ -7,6 +7,7 @@ import os
 import math
 import mimetypes
 import json
+import re
 import logging
 import multiprocessing as mp
 import queue
@@ -26,7 +27,7 @@ mimetypes.add_type("application/vnd.sqlite3", ".db")
 from collections import defaultdict, deque
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Iterator, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -1865,32 +1866,72 @@ _ZIP_REPORT_PAGE = """<!doctype html>
 """
 
 
-def _zip_directory(directory: Path) -> bytes:
+class _ZipSink:
+    """Write-only file object that collects what zipfile writes, so the
+    archive can be sent in pieces while it is being built."""
+
+    def __init__(self) -> None:
+        self.parts: list[bytes] = []
+
+    def write(self, data: bytes) -> int:
+        self.parts.append(bytes(data))
+        return len(data)
+
+    def flush(self) -> None:
+        pass
+
+    def take(self) -> bytes:
+        data, self.parts = b"".join(self.parts), []
+        return data
+
+
+ZIP_CHUNK_BYTES = 1 << 20
+
+
+def _zip_stream(directory: Path) -> Iterator[bytes]:
     """Zips every file under `directory`, with archive paths relative to it
     (so extracting lands the contents at the zip's root, not nested inside a
-    directory-name folder). A run's report is html/index.html, among
-    thousands of entity pages; REPORT.html at the root leads to it.
+    directory-name folder), and yields the archive in pieces as it is built:
+    a download starts at once and memory use stays small, also for runs of a
+    gigabyte. A run's report is html/index.html, among thousands of entity
+    pages; REPORT.html at the root leads to it.
     """
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+    sink = _ZipSink()
+    with zipfile.ZipFile(sink, "w", zipfile.ZIP_DEFLATED) as archive:
         if (directory / "html" / "index.html").is_file() and not (directory / ZIP_REPORT_LINK).exists():
             archive.writestr(ZIP_REPORT_LINK, _ZIP_REPORT_PAGE)
         for file_path in sorted(directory.rglob("*")):
-            if file_path.is_file():
-                archive.write(file_path, arcname=str(file_path.relative_to(directory)))
-    return buffer.getvalue()
+            if not file_path.is_file() or file_path.name.endswith(".tmp"):
+                continue
+            info = zipfile.ZipInfo.from_file(file_path, arcname=str(file_path.relative_to(directory)))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            with open(file_path, "rb") as source, archive.open(info, "w", force_zip64=info.file_size > 1 << 31) as target:
+                while chunk := source.read(ZIP_CHUNK_BYTES):
+                    target.write(chunk)
+                    if data := sink.take():
+                        yield data
+            if data := sink.take():
+                yield data
+    if data := sink.take():
+        yield data
 
 
-def _zip_response(directory: Path, filename: str) -> Response:
-    return Response(
-        content=_zip_directory(directory),
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+def _zip_directory(directory: Path) -> bytes:
+    return b"".join(_zip_stream(directory))
+
+
+def _zip_response(directory: Path, filename: str, token: str | None = None) -> Response:
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    response = StreamingResponse(_zip_stream(directory), media_type="application/zip", headers=headers)
+    if token:
+        # The report page shows a spinner after "Download results" until this
+        # cookie appears, i.e. until the download has started.
+        response.set_cookie(f"gptkb_download_{token}", "1", max_age=120, path="/", samesite="lax")
+    return response
 
 
 @app.get("/api/runs/{run_id}/download")
-def download_run(run_id: str) -> Response:
+def download_run(run_id: str, token: str | None = None) -> Response:
     """Zips the whole run directory (data files, knowledgeBase.db, and the
     generated HTML report) on the fly and returns it as an attachment.
     api_key is never in there -- runConfig.json already redacts it before
@@ -1899,7 +1940,9 @@ def download_run(run_id: str) -> Response:
     run_dir = _resolve_run_dir(run_id)
     if not run_dir.exists() or not run_dir.is_dir():
         raise HTTPException(status_code=404, detail="Run not found.")
-    return _zip_response(run_dir, f"gptkb-studio-{run_id}.zip")
+    if token is not None and not re.fullmatch(r"[A-Za-z0-9]{1,40}", token):
+        token = None
+    return _zip_response(run_dir, f"gptkb-studio-{run_id}.zip", token)
 
 
 LOG_REPLAY_LINES = 500

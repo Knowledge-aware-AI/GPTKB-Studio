@@ -31,6 +31,11 @@ header.compact { padding:26px 28px 22px; }
 .header-inner, main { max-width:1100px; margin:0 auto; }
 .header-top { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; }
 .header-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-left:auto; }
+.download-spinner { width:18px; height:18px; border-radius:50%; border:2.5px solid rgba(255,255,255,.35); border-top-color:#fff; animation:download-spin .8s linear infinite; flex:none; }
+.download-spinner[hidden] { display:none; }
+.download-button.busy { opacity:.75; cursor:progress; }
+@keyframes download-spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .download-spinner { animation-duration:2.4s; } }
 .header-link { color:#dbeeff; font-weight:700; font-size:13px; text-decoration:none; }
 .header-link:hover { text-decoration:underline; }
 .seed-chip { display:inline-block; margin:2px 2px; padding:2px 10px; border-radius:999px; background:#ffffff; color:#0b3d63; font-weight:700; font-size:15px; text-decoration:none; box-shadow:0 1px 3px rgba(0,0,0,.25); white-space:nowrap; }

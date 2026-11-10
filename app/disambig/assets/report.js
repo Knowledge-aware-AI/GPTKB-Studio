@@ -33,6 +33,43 @@
         });
         paint();
 
+        // "Download results": the server zips the run while it sends it, but a
+        // large run still takes a moment before the browser shows the download.
+        // A spinner next to the button shows that something is happening; the
+        // server sets a cookie named after a token in the link when the download
+        // starts, and the spinner goes away then.
+        document.querySelectorAll('a.download-button').forEach(function (button) {
+            var base = button.getAttribute('href');
+            if (!base || base.indexOf('/api/') !== 0 || location.protocol === 'file:') return;
+            var spinner = document.createElement('span');
+            spinner.className = 'download-spinner';
+            spinner.setAttribute('role', 'status');
+            spinner.setAttribute('aria-label', 'Preparing the download');
+            spinner.title = 'Preparing the download…';
+            spinner.hidden = true;
+            button.insertAdjacentElement('afterend', spinner);
+            var timer = null;
+            function done(name) {
+                clearInterval(timer); timer = null;
+                spinner.hidden = true;
+                button.classList.remove('busy');
+                if (name) document.cookie = name + '=; Max-Age=0; path=/';
+            }
+            button.addEventListener('click', function (event) {
+                if (timer) { event.preventDefault(); return; }  // already preparing
+                var token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+                var name = 'gptkb_download_' + token;
+                button.setAttribute('href', base + '?token=' + token);
+                spinner.hidden = false;
+                button.classList.add('busy');
+                var started = Date.now();
+                timer = setInterval(function () {
+                    if (document.cookie.split('; ').some(function (c) { return c.indexOf(name + '=') === 0; })) done(name);
+                    else if (Date.now() - started > 10 * 60 * 1000) done(null);
+                }, 300);
+            });
+        });
+
         // Knowledge graph (index page only).
         var container = document.getElementById('graphCanvas');
         var nodesEl = document.getElementById('graph-nodes-data');
