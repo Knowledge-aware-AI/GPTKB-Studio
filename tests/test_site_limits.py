@@ -153,6 +153,31 @@ class OpenRouterKeyTest(SiteTestCase):
         self.assertEqual(self.models(offline).json(), {"models": ["m/1"]})
 
 
+class RunConfigWriteTest(unittest.TestCase):
+    def test_concurrent_updates_keep_the_settings(self):
+        import threading
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            (run_dir / "runConfig.json").write_text(json.dumps({"topic": "t", "model": "m"}))
+            def hammer(n):
+                for i in range(200):
+                    server._update_run_config(run_dir, **{f"k{n}": i})
+            threads = [threading.Thread(target=hammer, args=(n,)) for n in range(8)]
+            for t in threads: t.start()
+            for t in threads: t.join()
+            config = json.loads((run_dir / "runConfig.json").read_text())
+            self.assertEqual((config["topic"], config["model"]), ("t", "m"))
+            self.assertEqual([config[f"k{n}"] for n in range(8)], [199] * 8)
+            self.assertEqual([f.name for f in run_dir.iterdir()], ["runConfig.json"])  # no temporary files left
+
+    def test_unreadable_config_is_not_overwritten(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            (run_dir / "runConfig.json").write_text('{"topic": "t", "mod')
+            server._update_run_config(run_dir, cached_size_bytes=1)
+            self.assertEqual((run_dir / "runConfig.json").read_text(), '{"topic": "t", "mod')
+
+
 class HardStopTest(unittest.TestCase):
     def test_server_ends_a_run_past_its_time(self):
         with tempfile.TemporaryDirectory() as tmp, \

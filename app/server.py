@@ -970,13 +970,33 @@ def _estimate_run_cost(run_dir: Path, config: dict[str, Any]) -> float | None:
     return round(estimated_cost, 4)
 
 
+# runConfig.json is updated from request threads (the run list caches its
+# counts there) and from each run's listener thread (end time, cost) at the
+# same time. Updates are serialized, and every write replaces the file in one
+# step, so no reader ever sees it half-written: a reader that did once took it
+# for empty and wrote back only its own fields, losing the run's settings.
+_run_config_lock = threading.Lock()
+
+
+def _write_run_config(run_dir: Path, config: dict[str, Any]) -> None:
+    path = run_dir / "runConfig.json"
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def _update_run_config(run_dir: Path, **updates: Any) -> None:
     config_path = run_dir / "runConfig.json"
-    config = _read_json(config_path) or {}
-    if not isinstance(config, dict):
-        config = {}
-    config.update(updates)
-    config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    with _run_config_lock:
+        config = _read_json(config_path)
+        if config is None and config_path.exists():
+            # Unreadable: never replace a run's settings with just these fields.
+            print(f"Not updating {config_path}: the file could not be read.", flush=True)
+            return
+        if not isinstance(config, dict):
+            config = {}
+        config.update(updates)
+        _write_run_config(run_dir, config)
 
 
 def _safe_run_config(
@@ -1680,10 +1700,8 @@ def start_run(request: RunRequest) -> dict[str, Any]:
         run_dir.mkdir(parents=True, exist_ok=True)
         started_at = datetime.now().isoformat(timespec="seconds")
         folder_id = _resolve_folder_id(request.folder_id, request.new_folder_name)
-        (run_dir / "runConfig.json").write_text(
-            json.dumps(_safe_run_config(request, started_at=started_at, folder_id=folder_id, pipeline=pipeline), indent=2),
-            encoding="utf-8",
-        )
+        with _run_config_lock:
+            _write_run_config(run_dir, _safe_run_config(request, started_at=started_at, folder_id=folder_id, pipeline=pipeline))
         ctrl = _prepare_controller(run_id, run_dir)
         ctrl.shared_key = _uses_shared_key(request, pipeline)
         _set_hard_stop(ctrl, shared_key_seconds)
@@ -1743,7 +1761,8 @@ def resume_historical_run(run_id: str, request: RunRequest) -> dict[str, Any]:
             folder_id=existing_folder_id,
             pipeline=pipeline,
         )
-        (run_dir / "runConfig.json").write_text(json.dumps(safe_config, indent=2), encoding="utf-8")
+        with _run_config_lock:
+            _write_run_config(run_dir, safe_config)
 
         ctrl = _prepare_controller(run_id, run_dir)
         ctrl.shared_key = _uses_shared_key(request, pipeline)
