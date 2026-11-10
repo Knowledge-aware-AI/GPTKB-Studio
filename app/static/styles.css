@@ -898,12 +898,67 @@ input:focus, select:focus, textarea:focus {
   font-weight: 600;
 }
 
+/* Sliders are drawn by us (track and a 16px handle), so the scale under a
+   stepped slider can put each label and tick exactly under its stop. */
 input[type="range"] {
+  --thumb: 16px;
   width: 100%;
-  accent-color: var(--accent);
-  height: 4px;
-  background: transparent;
+  height: var(--thumb);
+  margin: 4px 0 0;
   padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--field-line);
+}
+
+input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--field-line);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: var(--thumb);
+  height: var(--thumb);
+  margin-top: -6px;
+  border: 2px solid var(--panel);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--panel);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+input[type="range"]:focus,
+input[type="range"]:focus-visible {
+  outline: none;
+  background: transparent;
+}
+
+input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-tint);
+}
+
+input[type="range"]:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-tint);
 }
 
 .scale-labels {
@@ -911,6 +966,56 @@ input[type="range"] {
   justify-content: space-between;
   font-size: 10.5px;
   color: var(--faint);
+}
+
+/* Each label (with a tick above it) sits under its stop: the handle's centre
+   travels from half a handle in from the left to half a handle in from the
+   right. --f is the stop's position, 0 to 1. */
+.scale-labels.stepped {
+  position: relative;
+  display: block;
+  height: 24px;
+}
+
+.scale-labels.stepped span {
+  position: absolute;
+  top: 7px;
+  left: calc(8px + (100% - 16px) * var(--f, 0));
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+/* The outer labels end at the slider's edges; their ticks stay at the stops. */
+.scale-labels.stepped span:first-child:not(:only-child) {
+  left: 0;
+  transform: none;
+}
+
+.scale-labels.stepped span:last-child:not(:only-child) {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+.scale-labels.stepped span::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  width: 2px;
+  height: 5px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--field-line);
+}
+
+.scale-labels.stepped span:first-child:not(:only-child)::before {
+  left: 8px;
+}
+
+.scale-labels.stepped span:last-child:not(:only-child)::before {
+  left: auto;
+  right: 7px;
 }
 
 .switch-row {

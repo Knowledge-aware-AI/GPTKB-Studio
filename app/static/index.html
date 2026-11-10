@@ -223,7 +223,7 @@
               <label class="field slider-row hidden" data-role="reasoning-effort-field">
                 <span class="field-label">Reasoning effort (elicitation) <span class="value" data-role="reasoning-effort-label">Medium</span></span>
                 <input data-role="reasoning-effort-slider" type="range" min="0" max="2" step="1" value="1" />
-                <div class="scale-labels" data-role="reasoning-effort-scale"></div>
+                <div class="scale-labels stepped" data-role="reasoning-effort-scale"></div>
               </label>
 
               <h2 class="section-title">Knowledge Graph</h2>
@@ -244,8 +244,8 @@
                 </label>
                 <label class="field slider-row">
                   <span class="field-label">Desired triples <span class="value" data-role="triple-label">Medium</span></span>
-                  <input data-role="facts-slider" name="facts_multiplier" type="range" min="0.5" max="2" step="0.5" value="1" />
-                  <div class="scale-labels"><span>Few</span><span>Medium</span><span>Many</span></div>
+                  <input data-role="facts-slider" type="range" min="0" max="2" step="1" value="1" aria-label="Desired triples" />
+                  <div class="scale-labels stepped"><span style="--f:0">Few</span><span style="--f:0.5">Medium</span><span style="--f:1">Many</span></div>
                 </label>
               </div>
 

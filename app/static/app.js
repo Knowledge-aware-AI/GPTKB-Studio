@@ -346,6 +346,23 @@ function mergeSliderLabel(index) {
   return floor ? `${Math.round(floor * 100)}% similar` : "Standard";
 }
 
+// The "Desired triples" slider has three stops; the run setting is the
+// multiplier of the number of facts the prompt asks for.
+const FACTS_MULTIPLIERS = [0.5, 1, 2];
+
+function factsMultiplier(slider) {
+  return FACTS_MULTIPLIERS[Number(slider.value)] ?? 1;
+}
+
+function factsStop(multiplier) {
+  // The nearest stop (a run made with 1.5, when there were four, shows as Many).
+  let best = 1;
+  FACTS_MULTIPLIERS.forEach((value, index) => {
+    if (Math.abs(value - multiplier) <= Math.abs(FACTS_MULTIPLIERS[best] - multiplier)) best = index;
+  });
+  return best;
+}
+
 function sliderName(value) {
   if (value <= 0.5) return "Few";
   if (value >= 1.5) return "Many";
@@ -706,7 +723,7 @@ function buildTabController(tabId, root) {
       schema_mode: data.get("schema_mode"),
       schema_text: data.get("schema_text") || "",
       prompt_template: data.get("prompt_template") || "",
-      facts_multiplier: Number(data.get("facts_multiplier")),
+      facts_multiplier: factsMultiplier(factsSlider),
       ned_similarity_floor: MERGE_SIMILARITY_FLOORS[Number(mergeSlider.value)] || 0,
       ned_candidates: Number(data.get("ned_candidates")) || 5,
       max_entities: optionalNumber(data, "use_entities", "max_entities"),
@@ -907,8 +924,8 @@ function buildTabController(tabId, root) {
     set("topic", settings.topic);
     set("seed_entity", settings.seed_entity);
     if (settings.facts_multiplier !== undefined) {
-      factsSlider.value = settings.facts_multiplier;
-      tripleLabel.textContent = sliderName(Number(factsSlider.value));
+      factsSlider.value = String(factsStop(Number(settings.facts_multiplier)));
+      tripleLabel.textContent = sliderName(factsMultiplier(factsSlider));
     }
     const schemaMode = settings.schema_mode || "open";
     root.querySelectorAll('input[name="schema_mode"]').forEach((radio) => { radio.checked = radio.value === schemaMode; });
@@ -1065,7 +1082,7 @@ function buildTabController(tabId, root) {
   });
 
   factsSlider.addEventListener("input", () => {
-    tripleLabel.textContent = sliderName(Number(factsSlider.value));
+    tripleLabel.textContent = sliderName(factsMultiplier(factsSlider));
   });
 
   mergeSlider.addEventListener("input", () => {
@@ -1302,9 +1319,10 @@ function buildTabController(tabId, root) {
       const defaultIndex = Math.max(0, effort.levels.indexOf(effort.default));
       reasoningEffortSlider.value = String(defaultIndex);
       reasoningEffortScale.innerHTML = "";
-      effort.levels.forEach((level) => {
+      effort.levels.forEach((level, index) => {
         const span = document.createElement("span");
         span.textContent = titleCase(level);
+        span.style.setProperty("--f", effort.levels.length > 1 ? index / (effort.levels.length - 1) : 0);
         reasoningEffortScale.appendChild(span);
       });
       reasoningEffortLabel.textContent = titleCase(effort.levels[defaultIndex]);
@@ -1506,7 +1524,7 @@ function buildTabController(tabId, root) {
       const response = await postJSON("/api/prompt-preview", {
         language: wantedLanguage || languageSelect.value || "en",
         topic: topicInput.value,
-        facts_multiplier: Number(factsSlider.value),
+        facts_multiplier: factsMultiplier(factsSlider),
         schema_mode: root.querySelector('input[name="schema_mode"]:checked')?.value || "open",
         schema_text: schemaTextArea.value || "",
       });
