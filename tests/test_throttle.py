@@ -109,14 +109,14 @@ class UsageCounterTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "usage.json"
             counter = UsageCounter(path)
-            counter.record_call("ner", SimpleNamespace(usage=SimpleNamespace(prompt_tokens=10, completion_tokens=3)))
-            counter.record_retry("ner", rate_limited=True)
+            counter.record_call("cr", SimpleNamespace(usage=SimpleNamespace(prompt_tokens=10, completion_tokens=3)))
+            counter.record_retry("cr", rate_limited=True)
             counter.flush()
             resumed = UsageCounter(path)  # a resumed run continues the counts
-            resumed.record_call("ner", SimpleNamespace(usage=None))
+            resumed.record_call("cr", SimpleNamespace(usage=None))
             resumed.flush()
             self.assertEqual(
-                UsageCounter(path).roles["ner"],
+                UsageCounter(path).roles["cr"],
                 {"calls": 2, "prompt_tokens": 10, "completion_tokens": 3, "retries": 1, "rate_limited": 1},
             )
 

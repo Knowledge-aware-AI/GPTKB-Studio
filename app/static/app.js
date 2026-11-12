@@ -7,14 +7,14 @@ const addTabButton = document.querySelector("#add-tab-button");
 const runTabTemplate = document.querySelector("#run-tab-template");
 
 const SCADS_ENDPOINT = "https://llm.scads.ai/v1";
-// NER/NED models on ScaDS.AI labelled "recommended" in the model pickers
-// (Oct 2026): Qwen3.8-27B made no NED errors on decisions from test runs and
-// has a high rate limit; gemma-4 is accurate on NER, fast, and has its own
+// CR/CD models on ScaDS.AI labelled "recommended" in the model pickers
+// (Oct 2026): Qwen3.8-27B made no CD errors on decisions from test runs and
+// has a high rate limit; gemma-4 is accurate on CR, fast, and has its own
 // rate-limit quota. There is deliberately no default main model: that choice
 // is left to the user.
 const SCADS_RECOMMENDED_MODELS = {
-  ner_model: "google/gemma-4-26B-A4B-it",
-  ned_model: "Qwen/Qwen3.8-27B",
+  cr_model: "google/gemma-4-26B-A4B-it",
+  cd_model: "Qwen/Qwen3.8-27B",
 };
 const KNOWN_ENDPOINTS = [
   SCADS_ENDPOINT,
@@ -32,25 +32,25 @@ const PROMPT_TEMPLATES = [
   {
     id: "GPTKB_2x_repetition",
     label: "GPTKB, 2x repetition",
-    text: `I want to construct a knowledge graph on the topic of the ancient city of Babylon. Given a subject entity, return all facts that you know for the subject as a list of subject, predicate, object triples. The number of facts may be very high, between 50 to 100 or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like 5 or 10.
+    text: `I want to construct a knowledge graph on the topic of the ancient city of Babylon. Given a subject concept, return all facts that you know for the subject as a list of subject, predicate, object triples. The number of facts may be very high, between 50 to 100 or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like 5 or 10.
 
 Important: 
 - If you don't know the subject, return an empty list.
-- If the subject is not a named entity, return an empty list.
+- The subject can be a particular individual or a general concept.
 - If the subject does not belong to the topic of the ancient city of Babylon, return an empty list.
-- If the subject is a named entity, include at least one triple where predicate is "instanceOf".
+- Every concept should have at least one instanceOf or subClassOf triple. Use instanceOf for class membership and subClassOf for a narrower-to-broader concept relationship.
 - Do not get too wordy.
 - Separate several objects into multiple triples with one object.
 - Format the output as a structured JSON, a list of dictionaries with 3 keys "s", "p", and "o" each, and the respective values.
 - Don't generate any other text except for the triples in JSON format.
 Let me repeat that:
-I want to construct a knowledge graph on the topic of the ancient city of Babylon. Given a subject entity, return all facts that you know for the subject as a list of subject, predicate, object triples. The number of facts may be very high, between 50 to 100 or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like 5 or 10.
+I want to construct a knowledge graph on the topic of the ancient city of Babylon. Given a subject concept, return all facts that you know for the subject as a list of subject, predicate, object triples. The number of facts may be very high, between 50 to 100 or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like 5 or 10.
 
 Important: 
 - If you don't know the subject, return an empty list.
-- If the subject is not a named entity, return an empty list.
+- The subject can be a particular individual or a general concept.
 - If the subject does not belong to the topic of the ancient city of Babylon, return an empty list.
-- If the subject is a named entity, include at least one triple where predicate is "instanceOf".
+- Every concept should have at least one instanceOf or subClassOf triple. Use instanceOf for class membership and subClassOf for a narrower-to-broader concept relationship.
 - Do not get too wordy.
 - Separate several objects into multiple triples with one object.
 - Format the output as a structured JSON, a list of dictionaries with 3 keys "s", "p", and "o" each, and the respective values.
@@ -59,37 +59,37 @@ Important:
   {
     id: "GPTKB_3x_repetition",
     label: "GPTKB, 3x repetition",
-    text: `I want to construct a knowledge graph on the topic of the ancient city of Babylon. Given a subject entity, return all facts that you know for the subject as a list of subject, predicate, object triples. The number of facts may be very high, between 50 to 100 or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like 5 or 10.
+    text: `I want to construct a knowledge graph on the topic of the ancient city of Babylon. Given a subject concept, return all facts that you know for the subject as a list of subject, predicate, object triples. The number of facts may be very high, between 50 to 100 or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like 5 or 10.
 
 Important: 
 - If you don't know the subject, return an empty list.
-- If the subject is not a named entity, return an empty list.
+- The subject can be a particular individual or a general concept.
 - If the subject does not belong to the topic of the ancient city of Babylon, return an empty list.
-- If the subject is a named entity, include at least one triple where predicate is "instanceOf".
+- Every concept should have at least one instanceOf or subClassOf triple. Use instanceOf for class membership and subClassOf for a narrower-to-broader concept relationship.
 - Do not get too wordy.
 - Separate several objects into multiple triples with one object.
 - Format the output as a structured JSON, a list of dictionaries with 3 keys "s", "p", and "o" each, and the respective values.
 - Don't generate any other text except for the triples in JSON format.
 Let me repeat that:
-I want to construct a knowledge graph on the topic of the ancient city of Babylon. Given a subject entity, return all facts that you know for the subject as a list of subject, predicate, object triples. The number of facts may be very high, between 50 to 100 or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like 5 or 10.
+I want to construct a knowledge graph on the topic of the ancient city of Babylon. Given a subject concept, return all facts that you know for the subject as a list of subject, predicate, object triples. The number of facts may be very high, between 50 to 100 or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like 5 or 10.
 
 Important: 
 - If you don't know the subject, return an empty list.
-- If the subject is not a named entity, return an empty list.
+- The subject can be a particular individual or a general concept.
 - If the subject does not belong to the topic of the ancient city of Babylon, return an empty list.
-- If the subject is a named entity, include at least one triple where predicate is "instanceOf".
+- Every concept should have at least one instanceOf or subClassOf triple. Use instanceOf for class membership and subClassOf for a narrower-to-broader concept relationship.
 - Do not get too wordy.
 - Separate several objects into multiple triples with one object.
 - Format the output as a structured JSON, a list of dictionaries with 3 keys "s", "p", and "o" each, and the respective values.
 - Don't generate any other text except for the triples in JSON format.
 Let me repeat that one more time:
-I want to construct a knowledge graph on the topic of the ancient city of Babylon. Given a subject entity, return all facts that you know for the subject as a list of subject, predicate, object triples. The number of facts may be very high, between 50 to 100 or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like 5 or 10.
+I want to construct a knowledge graph on the topic of the ancient city of Babylon. Given a subject concept, return all facts that you know for the subject as a list of subject, predicate, object triples. The number of facts may be very high, between 50 to 100 or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like 5 or 10.
 
 Important: 
 - If you don't know the subject, return an empty list.
-- If the subject is not a named entity, return an empty list.
+- The subject can be a particular individual or a general concept.
 - If the subject does not belong to the topic of the ancient city of Babylon, return an empty list.
-- If the subject is a named entity, include at least one triple where predicate is "instanceOf".
+- Every concept should have at least one instanceOf or subClassOf triple. Use instanceOf for class membership and subClassOf for a narrower-to-broader concept relationship.
 - Do not get too wordy.
 - Separate several objects into multiple triples with one object.
 - Format the output as a structured JSON, a list of dictionaries with 3 keys "s", "p", and "o" each, and the respective values.
@@ -98,15 +98,15 @@ Important:
   {
     id: "schemaorg_schema",
     label: "Schema.org (fixed predicate list)",
-    text: `You are a knowledge base construction expert. Given a subject entity, return all facts that you know for the subject as a list of (subject, predicate, object) triples. The number of facts may be very high, between 50 to 100 or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like 5 or 10.
+    text: `You are a knowledge base construction expert. Given a subject concept, return all facts that you know for the subject as a list of (subject, predicate, object) triples. The number of facts may be very high, between 50 to 100 or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like 5 or 10.
 
 Important:
 - If you don't know the subject, return an empty list.
-- If the subject is not a named entity, return an empty list
+- The subject can be a particular individual or a general concept
 - Do not get too wordy.
 - Separate several objects into multiple triples with one object.
 - Predicates MUST be chosen only from the allowed predicate list below.
-- Choose only the predicates relevant for the subject entity.
+- Choose only the predicates relevant for the subject concept.
 - Do not invent new predicates.
 Allowed predicates:
 instanceOf
@@ -138,29 +138,29 @@ genre`,
   {
     id: "schemaorg_schema_no_constraints",
     label: "Schema.org (unconstrained)",
-    text: `You are a knowledge base construction expert. Given a subject entity, return all facts that you know for the subject as a list of (subject, predicate, object) triples. The number of facts may be very high, between 50 to 100 or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like 5 or 10.
+    text: `You are a knowledge base construction expert. Given a subject concept, return all facts that you know for the subject as a list of (subject, predicate, object) triples. The number of facts may be very high, between 50 to 100 or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like 5 or 10.
 
 Important:
 - If you don't know the subject, return an empty list.
-- If the subject is not a named entity, return an empty list
+- The subject can be a particular individual or a general concept
 - Do not get too wordy.
 - Separate several objects into multiple triples with one object.
 - Predicates MUST be chosen only from the schema.org schema.
-- Choose only the predicates relevant for the subject entity.
+- Choose only the predicates relevant for the subject concept.
 - Do not invent new predicates.`,
   },
   {
     id: "wikidata_schema",
     label: "Wikidata (fixed predicate list)",
-    text: `You are a knowledge base construction expert. Given a subject entity, return all facts that you know for the subject as a list of (subject, predicate, object) triples. The number of facts may be very high, between 50 to 100 or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like 5 or 10.
+    text: `You are a knowledge base construction expert. Given a subject concept, return all facts that you know for the subject as a list of (subject, predicate, object) triples. The number of facts may be very high, between 50 to 100 or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like 5 or 10.
 
 Important:
 - If you don't know the subject, return an empty list.
-- If the subject is not a named entity, return an empty list
+- The subject can be a particular individual or a general concept
 - Do not get too wordy.
 - Separate several objects into multiple triples with one object.
 - Predicates MUST be chosen only from the allowed predicate list below.
-- Choose only the predicates relevant for the subject entity.
+- Choose only the predicates relevant for the subject concept.
 - Do not invent new predicates.
  Allowed predicates:
 instance of
@@ -177,7 +177,7 @@ point in time
 publication date
 country
 country of citizenship
-located in the administrative territorial entity
+located in the administrative territorial concept
 location
 coordinate location
 place of birth
@@ -217,15 +217,15 @@ family name`,
   {
     id: "wikidata_schema_no_constraints",
     label: "Wikidata (unconstrained)",
-    text: `You are a knowledge base construction expert. Given a subject entity, return all facts that you know for the subject as a list of (subject, predicate, object) triples. The number of facts may be very high, between 50 to 100 or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like 5 or 10.
+    text: `You are a knowledge base construction expert. Given a subject concept, return all facts that you know for the subject as a list of (subject, predicate, object) triples. The number of facts may be very high, between 50 to 100 or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like 5 or 10.
 
 Important:
 - If you don't know the subject, return an empty list.
-- If the subject is not a named entity, return an empty list
+- The subject can be a particular individual or a general concept
 - Do not get too wordy.
 - Separate several objects into multiple triples with one object.
 - Predicates MUST be chosen only from the Wikidata schema.
-- Choose only the predicates relevant for the subject entity.
+- Choose only the predicates relevant for the subject concept.
 - Do not invent new predicates.`,
   },
 ];
@@ -334,10 +334,10 @@ function cell(text) {
   return td;
 }
 
-// Stops of the Entity merging slider: the minimum label similarity a
-// candidate needs to be offered to the NED model. 0 = Standard (no floor, as
+// Stops of the Concept merging slider: the minimum label similarity a
+// candidate needs to be offered to the CD model. 0 = Standard (no floor, as
 // in GPTKB 2.0);
-// the useful range starts around 0.8, since an entity's top-5 neighbours are
+// the useful range starts around 0.8, since an concept's top-5 neighbours are
 // rarely less similar than that.
 const MERGE_SIMILARITY_FLOORS = [0, 0.8, 0.85, 0.88, 0.9, 0.92, 0.94, 0.96];
 
@@ -414,7 +414,7 @@ function labelForTab(tab) {
   if (tab.pendingLabel) return tab.pendingLabel;
   if (!tab.currentRunId) return "New Run";
   const info = cachedRunsList.find((run) => run.run_id === tab.currentRunId);
-  if (info && (info.topic || info.seed_entity)) return info.topic || info.seed_entity;
+  if (info && (info.topic || info.seed_concept)) return info.topic || info.seed_concept;
   return tab.currentRunId.slice(0, 8);
 }
 
@@ -570,24 +570,24 @@ function buildTabController(tabId, root) {
   const modelSelect = root.querySelector('[data-role="model-select"]');
   const modelInput = root.querySelector('[data-role="model-input"]');
   // The elicitation model comes from the chosen endpoint (a free-text input
-  // for a custom endpoint); reasoning controls follow it. NER and NED can use
+  // for a custom endpoint); reasoning controls follow it. CR and CD can use
   // ScaDS.AI models -- always available through the shared key -- as well as
   // the elicitation endpoint's own models, so their options carry the
   // endpoint along with the model name.
-  // With a custom elicitation endpoint, NER/NED can also use a model typed
+  // With a custom elicitation endpoint, CR/CD can also use a model typed
   // in for that endpoint (the CUSTOM_ROLE_MODEL option shows a text input).
   const CUSTOM_ROLE_MODEL = "__custom__";
   const rolePickers = [
     {
-      select: root.querySelector('[data-role="ner-model-select"]'),
-      input: root.querySelector('[data-role="ner-model-custom"]'),
-      name: "ner",
+      select: root.querySelector('[data-role="cr-model-select"]'),
+      input: root.querySelector('[data-role="cr-model-custom"]'),
+      name: "cr",
       userChose: false,
     },
     {
-      select: root.querySelector('[data-role="ned-model-select"]'),
-      input: root.querySelector('[data-role="ned-model-custom"]'),
-      name: "ned",
+      select: root.querySelector('[data-role="cd-model-select"]'),
+      input: root.querySelector('[data-role="cd-model-custom"]'),
+      name: "cd",
       userChose: false,
     },
   ];
@@ -718,15 +718,15 @@ function buildTabController(tabId, root) {
       ...rolePayload(rolePickers[0]),
       ...rolePayload(rolePickers[1]),
       topic: data.get("topic"),
-      seed_entity: data.get("seed_entity"),
+      seed_concept: data.get("seed_concept"),
       language: data.get("language") || "en",
       schema_mode: data.get("schema_mode"),
       schema_text: data.get("schema_text") || "",
       prompt_template: data.get("prompt_template") || "",
       facts_multiplier: factsMultiplier(factsSlider),
-      ned_similarity_floor: MERGE_SIMILARITY_FLOORS[Number(mergeSlider.value)] || 0,
-      ned_candidates: Number(data.get("ned_candidates")) || 5,
-      max_entities: optionalNumber(data, "use_entities", "max_entities"),
+      cd_similarity_floor: MERGE_SIMILARITY_FLOORS[Number(mergeSlider.value)] || 0,
+      cd_candidates: Number(data.get("cd_candidates")) || 5,
+      max_concepts: optionalNumber(data, "use_concepts", "max_concepts"),
       max_bfs_depth: optionalNumber(data, "use_bfs", "max_bfs_depth"),
       max_runtime_seconds: optionalNumber(data, "use_runtime", "max_runtime_seconds"),
       max_cost: optionalNumber(data, "use_cost", "max_cost"),
@@ -852,7 +852,7 @@ function buildTabController(tabId, root) {
     htmlIndexLink.href = url;
     htmlIndexLink.classList.remove("disabled");
     htmlIndexLink.removeAttribute("aria-disabled");
-    htmlIndexLink.title = "The run's report, entity pages and graph (updated while it runs)";
+    htmlIndexLink.title = "The run's report, concept pages and graph (updated while it runs)";
   }
 
   function connectEvents(runId) {
@@ -922,7 +922,7 @@ function buildTabController(tabId, root) {
 
     promptPreviewToken += 1;
     set("topic", settings.topic);
-    set("seed_entity", settings.seed_entity);
+    set("seed_concept", settings.seed_concept);
     if (settings.facts_multiplier !== undefined) {
       factsSlider.value = String(factsStop(Number(settings.facts_multiplier)));
       tripleLabel.textContent = sliderName(factsMultiplier(factsSlider));
@@ -932,14 +932,14 @@ function buildTabController(tabId, root) {
     schemaDetails.classList.toggle("hidden", schemaMode === "open");
     schemaTextArea.value = settings.schema_text || "";
     // An empty prompt_template means the run used the generated prompt.
-    setLimit("use_entities", "max_entities", settings.max_entities);
+    setLimit("use_concepts", "max_concepts", settings.max_concepts);
     setLimit("use_bfs", "max_bfs_depth", settings.max_bfs_depth);
     setLimit("use_cost", "max_cost", settings.max_cost);
     setLimit("use_runtime", "max_runtime_seconds", settings.max_runtime_seconds);
     set("nthreads", settings.nthreads);
-    set("ned_candidates", settings.ned_candidates);
+    set("cd_candidates", settings.cd_candidates);
     form.elements.max_requests_per_minute.value = settings.max_requests_per_minute ?? "";
-    const floorIndex = MERGE_SIMILARITY_FLOORS.indexOf(Number(settings.ned_similarity_floor || 0));
+    const floorIndex = MERGE_SIMILARITY_FLOORS.indexOf(Number(settings.cd_similarity_floor || 0));
     mergeSlider.value = String(Math.max(0, floorIndex));
     mergeLabel.textContent = mergeSliderLabel(Number(mergeSlider.value));
 
@@ -952,7 +952,7 @@ function buildTabController(tabId, root) {
     else refreshPromptPreview();
 
     // Endpoint and model: the model list loads asynchronously, so the wanted
-    // model (and the NER/NED choices) are kept until their options arrive.
+    // model (and the CR/CD choices) are kept until their options arrive.
     if (settings.llm_url) {
       const mainUrl = normalizeUrl(settings.llm_url);
       llmUrl.value = settings.llm_url;
@@ -1037,7 +1037,7 @@ function buildTabController(tabId, root) {
     try {
       const payload = payloadFromForm();
       const response = await postJSON("/api/run", payload);
-      tab.pendingLabel = payload.topic || payload.seed_entity || null;
+      tab.pendingLabel = payload.topic || payload.seed_concept || null;
       setHtmlIndexLink(response.html_index_url);
       await watchRun(response.run_id, { isNewRun: true, startedAt: response.started_at, loadSettings: false });
       loadRuns();
@@ -1155,7 +1155,7 @@ function buildTabController(tabId, root) {
     return { [`${picker.name}_model`]: model, [`${picker.name}_llm_url`]: url };
   }
 
-  // NER/NED options (under Advanced): "same as main model", then the main
+  // CR/CD options (under Advanced): "same as main model", then the main
   // endpoint's models (if it isn't ScaDS.AI and its models are loaded) -- or,
   // for a custom endpoint, a typed-in model on it -- then ScaDS.AI's. The
   // default is the main model; the ScaDS.AI models we recommend for the task
@@ -1207,7 +1207,7 @@ function buildTabController(tabId, root) {
   // On sites that limit the shared ScaDS.AI key (siteSettings), runs on it
   // stop after shared_key_minutes in total (enforced by the server; this
   // note only explains it). The shared key is used when the main endpoint is
-  // ScaDS.AI without a key of the user's own, or when NER/NED run on ScaDS.AI
+  // ScaDS.AI without a key of the user's own, or when CR/CD run on ScaDS.AI
   // next to another main endpoint.
   function usesSharedKey() {
     const mainUrl = normalizeUrl(llmUrl.value);
@@ -1393,7 +1393,7 @@ function buildTabController(tabId, root) {
       modelInput.removeAttribute("name");
       refreshModelsForEndpoint(endpointSelect.value);
     }
-    // NER/NED can always use ScaDS.AI models; load them once if the
+    // CR/CD can always use ScaDS.AI models; load them once if the
     // elicitation endpoint's list won't include them.
     if (normalizeUrl(llmUrl.value) !== SCADS_ENDPOINT && !scadsModels.length) loadScadsModels();
     updateApiKeyRequirement();
@@ -1752,14 +1752,14 @@ function buildRunRow(run) {
 
   row.appendChild(cell(run.status));
   row.appendChild(cell(run.topic || ""));
-  row.appendChild(cell(run.seed_entity || ""));
+  row.appendChild(cell(run.seed_concept || ""));
   const modelCell = cell(run.model || "");
   if (run.pipeline === "classic") {
     modelCell.title = "Classic run (no disambiguation)";
     modelCell.textContent = `${run.model || ""} · classic`;
-  } else if (run.ner_model || run.ned_model) {
+  } else if (run.cr_model || run.cd_model) {
     const at = (url) => (url ? ` (${url.replace(/^https?:\/\//, "").split("/")[0]})` : "");
-    modelCell.title = `Elicitation: ${run.model}\nNER: ${run.ner_model}${at(run.ner_llm_url)}\nNED: ${run.ned_model}${at(run.ned_llm_url)}`;
+    modelCell.title = `Elicitation: ${run.model}\nCR: ${run.cr_model}${at(run.cr_llm_url)}\nCD: ${run.cd_model}${at(run.cd_llm_url)}`;
   }
   row.appendChild(modelCell);
   row.appendChild(cell(formatCost(run.cost_usd)));

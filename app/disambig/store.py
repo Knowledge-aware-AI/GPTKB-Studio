@@ -1,8 +1,8 @@
 """SQLite schema of a disambiguated GPTKB Studio run (knowledgeBase.db).
 
-Mirrors GPTKB 2.0's data model (db/db_models.py): entities ("instance
-nodes"), predicates and concepts (classes) are first-class elements with ids,
-a label and a description, and triples move through the pipeline by status.
+Concepts (individuals and general concepts) share canonical identifiers,
+aliases, descriptions and exploration status. Relations have their own IDs;
+objects are concepts or literals and triples move through the pipeline by status.
 The same file is the run's working state (a run resumes from it) and its
 downloadable export, so it also carries GPTKB Studio's `run` metadata table and
 a log of every disambiguation decision for the HTML report.
@@ -17,42 +17,37 @@ from typing import Any
 # Object (triple object) statuses, in pipeline order -- GPTKB 2.0's
 # ObjectStatusType minus the "on..." statuses only its batch mode uses.
 OBJ_GENERATED = "generated"
-OBJ_NER_FINISHED = "ner_finished"
-OBJ_NED1_FINISHED = "ned_finished1"
+OBJ_CR_FINISHED = "cr_finished"
+OBJ_CD1_FINISHED = "cd_finished1"
 OBJ_DG_FINISHED = "dg_finished"
 OBJ_FINISHED = "finished"
 
 TYPE_UNRECOGNIZED = "unrecognized"
-TYPE_NE = "ne"
+TYPE_CONCEPT = "concept"
 TYPE_LITERAL = "literal"
-TYPE_CLASS = "class"
 
 PRED_GENERATED = "generated"
 PRED_PD_FINISHED = "pd_finished"
 PRED_FINISHED = "finished"
 
-CONCEPT_GENERATED = "generated"
-CONCEPT_CD_FINISHED = "cd_finished"
-CONCEPT_FINISHED = "finished"
-
-ENTITY_UNEXPLORED = "unexplored"
-ENTITY_EXPLORED = "explored"
-ENTITY_FAILED = "failed"
+CONCEPT_UNEXPLORED = "unexplored"
+CONCEPT_EXPLORED = "explored"
+CONCEPT_FAILED = "failed"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 
 CREATE TABLE IF NOT EXISTS run (
-    run_id TEXT, pipeline TEXT, topic TEXT, seed_entity TEXT,
-    model TEXT, ner_model TEXT, ned_model TEXT, embedding_model TEXT,
+    run_id TEXT, pipeline TEXT, topic TEXT, seed_concept TEXT,
+    model TEXT, cr_model TEXT, cd_model TEXT, embedding_model TEXT,
     llm_url TEXT, language TEXT, schema_mode TEXT, schema_text TEXT, prompt_used TEXT,
     facts_multiplier REAL, nthreads INTEGER, max_requests_per_minute INTEGER,
-    max_entities INTEGER, max_bfs_depth INTEGER, max_runtime_seconds INTEGER, max_cost REAL,
+    max_concepts INTEGER, max_bfs_depth INTEGER, max_runtime_seconds INTEGER, max_cost REAL,
     started_at TEXT, ended_at TEXT, status TEXT, cost_usd REAL,
     reasoning_effort TEXT, reasoning_enabled INTEGER
 );
 
-CREATE TABLE IF NOT EXISTS entities (
+CREATE TABLE IF NOT EXISTS concepts (
     id TEXT PRIMARY KEY,
     seq INTEGER NOT NULL,
     label TEXT NOT NULL,
@@ -64,13 +59,13 @@ CREATE TABLE IF NOT EXISTS entities (
     attempts INTEGER NOT NULL DEFAULT 0,
     UNIQUE (label, description)
 );
-CREATE INDEX IF NOT EXISTS idx_entities_status ON entities (status, seq);
-CREATE INDEX IF NOT EXISTS idx_entities_label ON entities (label);
+CREATE INDEX IF NOT EXISTS idx_concepts_status ON concepts (status, seq);
+CREATE INDEX IF NOT EXISTS idx_concepts_label ON concepts (label);
 
-CREATE TABLE IF NOT EXISTS entity_aliases (
-    entity_id TEXT NOT NULL, alias TEXT NOT NULL, PRIMARY KEY (entity_id, alias)
+CREATE TABLE IF NOT EXISTS concept_aliases (
+    concept_id TEXT NOT NULL, alias TEXT NOT NULL, PRIMARY KEY (concept_id, alias)
 );
-CREATE INDEX IF NOT EXISTS idx_entity_aliases_alias ON entity_aliases (alias);
+CREATE INDEX IF NOT EXISTS idx_concept_aliases_alias ON concept_aliases (alias);
 
 CREATE TABLE IF NOT EXISTS predicates (
     id TEXT PRIMARY KEY, seq INTEGER NOT NULL, label TEXT NOT NULL, description TEXT NOT NULL,
@@ -78,14 +73,6 @@ CREATE TABLE IF NOT EXISTS predicates (
 );
 CREATE TABLE IF NOT EXISTS predicate_aliases (
     predicate_id TEXT NOT NULL, alias TEXT NOT NULL, PRIMARY KEY (predicate_id, alias)
-);
-
-CREATE TABLE IF NOT EXISTS concepts (
-    id TEXT PRIMARY KEY, seq INTEGER NOT NULL, label TEXT NOT NULL, description TEXT NOT NULL,
-    first_appeared TEXT, UNIQUE (label, description)
-);
-CREATE TABLE IF NOT EXISTS concept_aliases (
-    concept_id TEXT NOT NULL, alias TEXT NOT NULL, PRIMARY KEY (concept_id, alias)
 );
 
 CREATE TABLE IF NOT EXISTS triples (
@@ -101,8 +88,8 @@ CREATE TABLE IF NOT EXISTS triples (
     object_type TEXT NOT NULL DEFAULT 'unrecognized',
     object_status TEXT NOT NULL DEFAULT 'generated',
     object_description TEXT,
-    -- How the object got (or didn't get) its id: cache, ned1, ned2, new,
-    -- unsure (NED1 option G) or failed (gave up after repeated errors).
+    -- How the object got (or didn't get) its id: cache, cd1, cd2, new,
+    -- unsure (CD1 option G) or failed (gave up after repeated errors).
     resolution TEXT,
     attempts INTEGER NOT NULL DEFAULT 0
 );
@@ -118,19 +105,7 @@ CREATE INDEX IF NOT EXISTS idx_triples_predicate_stage ON triples (predicate_sta
 CREATE INDEX IF NOT EXISTS idx_triples_pred_obj ON triples (predicate_label, object_label, object_id);
 CREATE INDEX IF NOT EXISTS idx_triples_object_label ON triples (object_label);
 
-CREATE TABLE IF NOT EXISTS instance_triples (
-    triple_id TEXT PRIMARY KEY,
-    entity_id TEXT NOT NULL,
-    concept_label TEXT NOT NULL,
-    concept_id TEXT,
-    status TEXT NOT NULL DEFAULT 'generated',
-    attempts INTEGER NOT NULL DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_instance_status ON instance_triples (status);
-CREATE INDEX IF NOT EXISTS idx_instance_label ON instance_triples (concept_label);
-CREATE INDEX IF NOT EXISTS idx_instance_entity ON instance_triples (entity_id, concept_id);
-
--- The candidates offered for each disambiguation decision (NED1, NED2, PD,
+-- The candidates offered for each disambiguation decision (CD1, CD2, PD,
 -- CD), in option order -- the model answers with an option letter.
 CREATE TABLE IF NOT EXISTS candidates (
     triple_id TEXT NOT NULL, stage TEXT NOT NULL, position INTEGER NOT NULL, ref_id TEXT NOT NULL,
@@ -158,9 +133,91 @@ def connect(db_path: Path) -> sqlite3.Connection:
     connection = sqlite3.connect(db_path, check_same_thread=False)
     connection.execute("PRAGMA journal_mode=WAL")
     connection.execute("PRAGMA synchronous=NORMAL")
-    connection.executescript(SCHEMA)
-    connection.commit()
+    try:
+        _migrate_legacy(connection)
+        connection.executescript(SCHEMA)
+        connection.commit()
+    except Exception:
+        connection.close()
+        raise
     return connection
+
+
+def _migrate_legacy(db: sqlite3.Connection) -> None:
+    """Unify an original GPTKB Studio database transactionally on resume.
+
+    Preserve existing IDs and decision traces. Former class nodes become
+    expandable concepts; former literals are recognized again because the old
+    recognizer rejected general concepts as literals.
+    """
+    tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "entities" not in tables:
+        return
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        db.execute("ALTER TABLE concepts RENAME TO legacy_classes")
+        db.execute("ALTER TABLE concept_aliases RENAME TO legacy_class_aliases")
+        db.execute("ALTER TABLE entities RENAME TO concepts")
+        db.execute("ALTER TABLE entity_aliases RENAME TO concept_aliases")
+        db.execute("ALTER TABLE concept_aliases RENAME COLUMN entity_id TO concept_id")
+        for old, new in (("seed_entity", "seed_concept"), ("ner_model", "cr_model"),
+                         ("ned_model", "cd_model"), ("max_entities", "max_concepts")):
+            db.execute(f"ALTER TABLE run RENAME COLUMN {old} TO {new}")
+        next_seq = db.execute("SELECT COALESCE(MAX(seq), -1) + 1 FROM concepts").fetchone()[0]
+        for class_id, label, description, first in db.execute(
+            "SELECT id, label, description, first_appeared FROM legacy_classes ORDER BY seq"
+        ).fetchall():
+            existing = db.execute("SELECT id FROM concepts WHERE label = ? AND description = ?",
+                                  (label, description)).fetchone()
+            concept_id = existing[0] if existing else class_id
+            if not existing:
+                depth = db.execute(
+                    "SELECT MIN(c.depth) + 1 FROM instance_triples it JOIN concepts c ON c.id = it.entity_id "
+                    "WHERE it.concept_id = ?", (class_id,)
+                ).fetchone()[0]
+                db.execute("INSERT INTO concepts (id, seq, label, description, depth, first_appeared) "
+                           "VALUES (?, ?, ?, ?, ?, ?)",
+                           (concept_id, next_seq, label, description, depth or 1, first))
+                next_seq += 1
+            db.execute("INSERT OR IGNORE INTO concept_aliases SELECT ?, alias FROM legacy_class_aliases WHERE concept_id = ?",
+                       (concept_id, class_id))
+            db.execute("UPDATE triples SET object_id = ?, object_type = 'concept', object_status = 'finished', "
+                       "resolution = 'migrated' WHERE id IN (SELECT triple_id FROM instance_triples WHERE concept_id = ?)",
+                       (concept_id, class_id))
+            if concept_id != class_id:
+                db.execute("UPDATE candidates SET ref_id = ? WHERE ref_id = ?", (concept_id, class_id))
+                db.execute("UPDATE decisions SET chosen_id = ? WHERE chosen_id = ?", (concept_id, class_id))
+        db.execute("UPDATE triples SET object_type = 'concept', object_status = 'cr_finished', attempts = 0 "
+                   "WHERE object_type = 'class'")
+        db.execute("UPDATE triples SET object_type = 'unrecognized', object_status = 'generated', attempts = 0 "
+                   "WHERE object_type = 'literal' AND COALESCE(resolution, '') != 'failed'")
+        db.execute("UPDATE triples SET object_type = 'concept' WHERE object_type = 'ne'")
+        for old, new in (("ner_finished", "cr_finished"), ("ned_finished1", "cd_finished1")):
+            db.execute("UPDATE triples SET object_status = ? WHERE object_status = ?", (new, old))
+        # Historical class decisions remain distinguishable from common CD.
+        for table in ("decisions", "candidates"):
+            for old, new in (("cdg", "legacy_class_description"), ("cd", "legacy_class_disambiguation"),
+                             ("ner", "cr"), ("ned1", "cd1"), ("ned2", "cd2"), ("nedg", "cdg")):
+                db.execute(f"UPDATE {table} SET stage = ? WHERE stage = ?", (new, old))
+        for old, new in (("ned1", "cd1"), ("ned2", "cd2")):
+            db.execute("UPDATE triples SET resolution = ? WHERE resolution = ?", (new, old))
+        db.execute("DROP TABLE instance_triples")
+        db.execute("DROP TABLE legacy_class_aliases")
+        db.execute("DROP TABLE legacy_classes")
+        # C IDs from the former class table and E IDs from the former individual
+        # table remain valid, while all newly allocated IDs use C.
+        largest_id = max((int(r[0][1:]) for r in db.execute("SELECT id FROM concepts")
+                          if r[0].startswith("C") and r[0][1:].isdigit()), default=-1)
+        db.execute("INSERT OR REPLACE INTO meta VALUES ('next_concept', ?)", (str(max(next_seq, largest_id + 1)),))
+        db.execute("DELETE FROM meta WHERE key = 'next_entity'")
+        seed = db.execute("SELECT id FROM concepts ORDER BY depth, seq LIMIT 1").fetchone()
+        db.execute("INSERT OR REPLACE INTO meta VALUES ('seed_id', ?)", (seed[0] if seed else "C0",))
+        # P1 may already name a different relation in an old run. Keep every
+        # predicate identity and find typing predicates by label instead.
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
 
 def get_meta(connection: sqlite3.Connection, key: str, default: str | None = None) -> str | None:
@@ -185,17 +242,33 @@ def progress_counts(db_path: Path) -> dict[str, Any] | None:
         def scalar(sql: str) -> int:
             return int(connection.execute(sql).fetchone()[0] or 0)
 
+        tables = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        if "entities" in tables:
+            # History stays read-only. Include work that the resume migration
+            # will introduce, so completed old runs can be extended to concepts.
+            return {
+                "processed": scalar("SELECT COUNT(*) FROM entities WHERE status != 'unexplored'"),
+                "queued": scalar("SELECT COUNT(*) FROM entities WHERE status = 'unexplored'")
+                          + scalar("SELECT COUNT(*) FROM concepts"),
+                "concepts": scalar("SELECT COUNT(*) FROM entities") + scalar("SELECT COUNT(*) FROM concepts"),
+                "triples": scalar("SELECT COUNT(*) FROM triples"),
+                "literals": scalar("SELECT COUNT(*) FROM triples WHERE object_type = 'literal'"),
+                "failed_subjects": scalar("SELECT COUNT(*) FROM failures"),
+                "pending": scalar("SELECT COUNT(*) FROM triples WHERE object_status != 'finished' OR predicate_status != 'finished' "
+                                  "OR (object_type = 'literal' AND COALESCE(resolution, '') != 'failed')")
+                           + scalar("SELECT COUNT(*) FROM instance_triples WHERE status != 'finished'"),
+                "cost_usd": (connection.execute("SELECT cost_usd FROM run").fetchone() or (None,))[0],
+            }
         return {
-            "processed": scalar("SELECT COUNT(*) FROM entities WHERE status != 'unexplored'"),
-            "queued": scalar("SELECT COUNT(*) FROM entities WHERE status = 'unexplored'"),
-            "entities": scalar("SELECT COUNT(*) FROM entities"),
+            "processed": scalar("SELECT COUNT(*) FROM concepts WHERE status != 'unexplored'"),
+            "queued": scalar("SELECT COUNT(*) FROM concepts WHERE status = 'unexplored'"),
+            "concepts": scalar("SELECT COUNT(*) FROM concepts"),
             "triples": scalar("SELECT COUNT(*) FROM triples"),
             "literals": scalar("SELECT COUNT(*) FROM triples WHERE object_type = 'literal'"),
             "failed_subjects": scalar("SELECT COUNT(*) FROM failures"),
             "pending": scalar(
                 "SELECT COUNT(*) FROM triples WHERE object_status != 'finished' OR predicate_status != 'finished'"
-            )
-            + scalar("SELECT COUNT(*) FROM instance_triples WHERE status != 'finished'"),
+            ),
             "cost_usd": (connection.execute("SELECT cost_usd FROM run").fetchone() or (None,))[0],
         }
     except sqlite3.Error:

@@ -14,17 +14,17 @@ class HeartbeatTest(unittest.TestCase):
         self.lines = []
         self.paused = False
         self.beat = Heartbeat(lambda message, level: (self.lines.append((level, message)), self.beat.logged()),
-                              lambda: ("NED: 40 objects", "512 triples to disambiguate"),
+                              lambda: ("CD: 40 objects", "512 triples to disambiguate"),
                               threading.Event(), paused=lambda: self.paused)
 
     def test_quiet_run_gets_a_status_line(self):
-        with self.beat.request("NED", "Qwen/Qwen3.8-27B", 300), self.beat.request("NED", "Qwen/Qwen3.8-27B", 300):
+        with self.beat.request("CD", "Qwen/Qwen3.8-27B", 300), self.beat.request("CD", "Qwen/Qwen3.8-27B", 300):
             start = time.monotonic()
             self.beat.check(start + 30)
             self.assertEqual(self.lines, [])  # not quiet long enough
             self.beat.check(start + 61)
         self.assertEqual(self.lines, [("info",
-            "Still working (NED: 40 objects): 2 NED requests to Qwen/Qwen3.8-27B waiting for an answer, "
+            "Still working (CD: 40 objects): 2 CD requests to Qwen/Qwen3.8-27B waiting for an answer, "
             "the oldest for 1m 01s (timeout after 5m 00s); 512 triples to disambiguate.")])
 
     def test_status_line_repeats_only_while_quiet(self):
@@ -47,7 +47,7 @@ class HeartbeatTest(unittest.TestCase):
 
     def test_paused_run_stays_silent(self):
         self.paused = True
-        with self.beat.request("NER", "m", 300):
+        with self.beat.request("CR", "m", 300):
             self.beat.check(time.monotonic() + 600)
         self.assertEqual(self.lines, [])
 

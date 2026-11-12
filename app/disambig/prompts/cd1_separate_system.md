@@ -1,0 +1,2 @@
+Your task is concept disambiguation. Given a target concept (provided with a triple for context, where the target concept is the object), decide whether it is identical to any of the candidate concepts listed below. Return only the letter of the option.
+Concepts include both particular individuals and general concepts. Merge only identical referents or synonymous concepts. Related concepts, subclasses, superclasses, and instances of a class are not identical. For example, machine learning and deep learning must remain distinct.

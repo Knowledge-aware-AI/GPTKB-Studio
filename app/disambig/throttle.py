@@ -3,7 +3,7 @@
 The ScaDS.AI endpoint (LiteLLM) limits each model to N requests and T tokens
 per minute per key, and answers anything over it with HTTP 429 and a 60 s
 retry-after -- which stalls a run for a minute at a time, typically during
-NED, whose calls are long. Its responses report both limits in
+CD, whose calls are long. Its responses report both limits in
 x-ratelimit-*-limit-requests / -limit-tokens headers, so the throttle learns
 them from the first response for each model and from then on delays requests
 that would push the model's last 60 seconds past a safety fraction of either

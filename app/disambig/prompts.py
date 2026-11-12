@@ -1,16 +1,12 @@
 """Prompts and response parsers of the GPTKB 2.0 disambiguation pipeline.
 
-The system prompts in ./prompts are copied verbatim from
+The concept and relation prompts are adapted from GPTKB 2.0:
 https://github.com/Knowledge-aware-AI/GPTKB2_disambiguation_on_the_fly
-(Apache-2.0, see prompts/LICENSE-GPTKB2 and prompts/SOURCE), and the user
-messages and parsers below mirror that repo's prompter_parser/prompt_schema.py
--- adapted from its Responses-API request bodies to plain chat messages, since
-this app talks to any OpenAI-compatible Chat Completions endpoint.
+(Apache-2.0, see prompts/LICENSE-GPTKB2 and prompts/SOURCE).
 
-Elicitation is the one exception: it keeps the miniGPTKB method's topic-scoped,
-multilingual prompt (app.runner.build_elicitation_prompt*), extended with
-GPTKB 2.0's "Description of subject" line so homonymous subjects are elicited
-as the entity they actually denote.
+Concept recognition and disambiguation cover both particular individuals and
+abstract/general concepts. Elicitation uses the shared multilingual prompt in
+app.runner and appends the subject description to resolve ambiguous labels.
 """
 
 from __future__ import annotations
@@ -29,26 +25,16 @@ def _load(name: str) -> str:
     return (_PROMPT_DIR / name).read_text(encoding="utf-8").strip()
 
 
-NER_SYSTEM = _load("ner_system.md")
-NED1_SYSTEM = _load("ned1_separate_system.md")
-NED2_SYSTEM = _load("ned2_separate_system.md")
-NEDG_SYSTEM = _load("nedg_system.md")
+CR_SYSTEM = _load("cr_system.md")
+CD1_SYSTEM = _load("cd1_separate_system.md")
+CD2_SYSTEM = _load("cd2_separate_system.md")
+CDG_SYSTEM = _load("cdg_system.md")
 PD_SYSTEM = _load("pd_separate_system.md")
 PDG_SYSTEM = _load("pdg_system.md")
-CD_SYSTEM = _load("cd_separate_system.md")
-CDG_SYSTEM = _load("cdg_system.md")
 
-# The GPTKB 2.0 NER prompt asks for "english named entit[ies] ... in Latin
-# script", which would classify every object of a non-English run as a
-# literal. For those runs only that qualifier is dropped; English runs use the
-# prompt exactly as published.
-_NER_ENGLISH_QUALIFIER = re.compile(r"english (named entity \([^)]*\)) in Latin script")
-
-
-def ner_system_prompt(language: str) -> str:
-    if language == "en":
-        return NER_SYSTEM
-    return _NER_ENGLISH_QUALIFIER.sub(r"\1", NER_SYSTEM)
+def cr_system_prompt(language: str) -> str:
+    # The decision is semantic and works in every supported prompt language.
+    return CR_SYSTEM
 
 
 # Label for the extra elicitation line, per prompt language.
@@ -68,17 +54,11 @@ DESCRIPTION_LABELS: dict[str, str] = {
 
 
 def instance_of_labels(language: str) -> set[str]:
-    """The predicate label(s) the elicitation prompt asks the model to use
-    for class membership -- "instanceOf", plus its translation for a
-    non-English prompt (e.g. "istanzaDi"), taken from the same rule text
-    the prompt itself is built from so the two can't disagree.
-    """
-    labels = {"instanceOf"}
-    rule = PROMPT_LANGUAGES.get(language, PROMPT_LANGUAGES["en"])["rule_instance_of"]
-    match = re.search(r'"([^"]+)"', rule)
-    if match:
-        labels.add(match.group(1))
-    return labels
+    """Recognize canonical instanceOf and older translated prompt labels."""
+    translated = {"de": "InstanzVon", "es": "instanciaDe", "fr": "instanceDe",
+                  "it": "istanzaDi", "pl": "instancja", "pt": "instânciaDe",
+                  "ru": "ЧастныйСлучайДля", "sv": "ärInstansAv", "tr": "nedir", "cs": "instance"}
+    return {"instanceOf", translated.get(language, "instanceOf")}
 
 
 def elicitation_user_message(base_prompt: str, language: str, description: str) -> str:
@@ -87,21 +67,21 @@ def elicitation_user_message(base_prompt: str, language: str, description: str) 
 
 
 def seed_description_messages(seed_label: str, topic: str) -> tuple[str, str]:
-    """The seed entity has no source triple to describe it from (GPTKB 2.0
-    seeds its KB with a hand-written description), so it gets the NEDG
+    """The seed concept has no source triple to describe it from (GPTKB 2.0
+    seeds its KB with a hand-written description), so it gets the CDG
     instructions with the run's topic standing in for the context triple.
     """
-    system = NEDG_SYSTEM.replace(
-        "You are given a context triple in the form (subject, predicate, object), where the object is the target entity.",
-        "You are given the topic of the knowledge base the target entity belongs to.",
+    system = CDG_SYSTEM.replace(
+        "You are given a context triple in the form (subject, predicate, object), where the object is the target concept.",
+        "You are given the topic of the knowledge base the target concept belongs to.",
     ).replace("Use the triple to infer", "Use the topic to infer").replace(
         "Avoid repeating the information from the triple, unless really essential.", ""
     )
-    return system, f"Entity: {seed_label}\nTopic: {topic}\n"
+    return system, f"Concept: {seed_label}\nTopic: {topic}\n"
 
 
-def ner_messages(language: str, subject: str, predicate: str, obj: str) -> tuple[str, str]:
-    return ner_system_prompt(language), f"Phrase: {obj} | Statement: [{subject}, {predicate}, {obj}]\n"
+def cr_messages(language: str, subject: str, predicate: str, obj: str) -> tuple[str, str]:
+    return cr_system_prompt(language), f"Phrase: {obj} | Statement: [{subject}, {predicate}, {obj}]\n"
 
 
 def _options(kind: str, labels: list[str], descs: list[str]) -> str:
@@ -120,33 +100,33 @@ def option_letters(n_candidates: int) -> tuple[str, str]:
     return chr(65 + n_candidates), chr(66 + n_candidates)
 
 
-def ned_parse_options(stage: str, n_candidates: int) -> dict[str, Any]:
-    """parse_choice() arguments for a NED1/NED2 answer to n candidates."""
+def cd_parse_options(stage: str, n_candidates: int) -> dict[str, Any]:
+    """parse_choice() arguments for a CD1/CD2 answer to n candidates."""
     none, unsure = option_letters(n_candidates)
-    if stage == "ned1":
+    if stage == "cd1":
         return {"letters": f"A-{unsure}", "unsure": True, "none": none, "unsure_letter": unsure}
     return {"letters": f"A-{none}", "unsure": False, "none": none, "unsure_letter": unsure}
 
 
-def ned1_messages(subject: str, predicate: str, obj: str, labels: list[str], descs: list[str]) -> tuple[str, str]:
+def cd1_messages(subject: str, predicate: str, obj: str, labels: list[str], descs: list[str]) -> tuple[str, str]:
     none, unsure = option_letters(len(labels))
     fixed = (
         f"{none}. None of above.\n\n"
         f"{unsure}. Unsure - the case is ambiguous/there is not enough information to decide.\n"
     )
     user = (
-        f"Target entity: {obj}\n"
+        f"Target concept: {obj}\n"
         f"Context triple: [{subject}, {predicate}, {obj}]\n"
-        f"Options:\n{_options('Entity', labels, descs)}\n\n{fixed}"
+        f"Options:\n{_options('Concept', labels, descs)}\n\n{fixed}"
     )
-    return NED1_SYSTEM, user
+    return CD1_SYSTEM, user
 
 
-# GPTKB Studio addition to GPTKB 2.0's description prompts (NEDG, PDG, CDG):
+# GPTKB Studio addition to GPTKB 2.0's description prompts (CDG, PDG, CDG):
 # a topic-specific KB knows what its elements are about, and without it a
 # description written from one triple is often a guess about some other
 # namesake (e.g. a sitcom character described as an unrelated actress),
-# which then derails description-context NED.
+# which then derails description-context CD.
 TOPIC_INSTRUCTION = (
     "The knowledge base is about the topic given below; describe the {kind} in the sense relevant to that topic."
 )
@@ -156,20 +136,20 @@ def _with_topic(system: str, kind: str) -> str:
     return f"{system}\n# Topic\n{TOPIC_INSTRUCTION.format(kind=kind)}"
 
 
-def nedg_messages(subject: str, predicate: str, obj: str, topic: str) -> tuple[str, str]:
+def cdg_messages(subject: str, predicate: str, obj: str, topic: str) -> tuple[str, str]:
     return (
-        _with_topic(NEDG_SYSTEM, "entity"),
-        f"Entity: {obj}\nTriple: [{subject}, {predicate}, {obj}]\nTopic: {topic}\n",
+        _with_topic(CDG_SYSTEM, "concept"),
+        f"Concept: {obj}\nTriple: [{subject}, {predicate}, {obj}]\nTopic: {topic}\n",
     )
 
 
-def ned2_messages(obj: str, obj_description: str, labels: list[str], descs: list[str]) -> tuple[str, str]:
+def cd2_messages(obj: str, obj_description: str, labels: list[str], descs: list[str]) -> tuple[str, str]:
     user = (
-        f"Target entity: {obj}\n"
-        f"Target entity description: {obj_description}\n"
-        f"Options:\n{_options('Entity', labels, descs)}\n\n{option_letters(len(labels))[0]}. None of above.\n"
+        f"Target concept: {obj}\n"
+        f"Target concept description: {obj_description}\n"
+        f"Options:\n{_options('Concept', labels, descs)}\n\n{option_letters(len(labels))[0]}. None of above.\n"
     )
-    return NED2_SYSTEM, user
+    return CD2_SYSTEM, user
 
 
 def pd_messages(subject: str, predicate: str, obj: str, labels: list[str], descs: list[str]) -> tuple[str, str]:
@@ -183,19 +163,6 @@ def pd_messages(subject: str, predicate: str, obj: str, labels: list[str], descs
 
 def pdg_messages(predicate: str, topic: str) -> tuple[str, str]:
     return _with_topic(PDG_SYSTEM, "relationship"), f"Predicate: {predicate}\nTopic: {topic}\n"
-
-
-def cd_messages(subject: str, predicate: str, obj: str, labels: list[str], descs: list[str]) -> tuple[str, str]:
-    user = (
-        f"Target class: {obj}\n"
-        f"Context triple: [{subject}, {predicate}, {obj}]\n"
-        f"Options:\n{_options('Class', labels, descs)}\n\nF. None of above.\n"
-    )
-    return CD_SYSTEM, user
-
-
-def cdg_messages(concept: str, topic: str) -> tuple[str, str]:
-    return _with_topic(CDG_SYSTEM, "class"), f"Class: {concept}\nTopic: {topic}\n"
 
 
 # ---- Parsers -------------------------------------------------------------
@@ -256,19 +223,21 @@ def parse_elicitation(text: str) -> list[dict[str, str]]:
     return triples
 
 
-def parse_ner(text: str) -> bool:
+def parse_cr(text: str) -> bool:
     data = _first_json_value(text)
-    if not isinstance(data, dict) or "is_ne" not in data:
-        raise ParsingError("NER response has no 'is_ne' field")
-    value = data["is_ne"]
+    if not isinstance(data, dict) or "is_concept" not in data:
+        raise ParsingError("CR response has no 'is_concept' field")
+    value = data["is_concept"]
     if isinstance(value, str):
         lowered = value.strip().lower()
         if lowered in {"true", "yes"}:
             return True
         if lowered in {"false", "no"}:
             return False
-        raise ParsingError(f"Unrecognized is_ne value {value!r}")
-    return bool(value)
+        raise ParsingError(f"Unrecognized is_concept value {value!r}")
+    if isinstance(value, bool):
+        return value
+    raise ParsingError(f"Unrecognized is_concept value {value!r}")
 
 
 def _unique_letter(text: str, letters: str) -> str | None:
@@ -299,10 +268,10 @@ def parse_choice(
     text: str, letters: str = "A-G", unsure: bool = False, none: str = "F", unsure_letter: str = "G"
 ) -> int | str | None:
     """GPTKB 2.0's option parser: the answer must contain exactly one option
-    letter (NED2 only looks for A-F, the others for A-G). Returns the 1-based
+    letter (CD2 only looks for A-F, the others for A-G). Returns the 1-based
     candidate index, None for "None of above" (or an unparsable answer, which
     GPTKB 2.0 treats the same way), or "unsure" for option G where it is
-    offered (NED1). Elsewhere G comes back as index 7, which is out of range
+    offered (CD1). Elsewhere G comes back as index 7, which is out of range
     for every candidate list, so the caller resets that item for a retry --
     again as GPTKB 2.0 does.
     """

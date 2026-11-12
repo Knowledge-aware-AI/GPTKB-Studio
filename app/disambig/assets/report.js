@@ -1,4 +1,4 @@
-// Shared script of the disambiguated GPTKB Studio HTML report (index and entity pages).
+// Shared script of the disambiguated GPTKB Studio HTML report (index and concept pages).
 (function () {
     // Theme toggle -- same storage key as the GPTKB Studio control panel (same
     // origin), so a choice made in one place is remembered in the other.
@@ -106,11 +106,11 @@
             };
         }
 
-        // Entity index filter.
-        var input = document.getElementById('entitySearch');
+        // Concept index filter.
+        var input = document.getElementById('conceptSearch');
         if (input) {
-            var items = Array.prototype.slice.call(document.querySelectorAll('#entityList li'));
-            var countEl = document.getElementById('entityCount');
+            var items = Array.prototype.slice.call(document.querySelectorAll('#conceptList li'));
+            var countEl = document.getElementById('conceptCount');
             var trueTotal = countEl ? countEl.textContent : String(items.length);
             input.addEventListener('input', function () {
                 var query = input.value.trim().toLowerCase();
@@ -140,7 +140,7 @@
                 // [subject label, subject id, predicate label, predicate id, object label, object id, object type]
                 tbody.innerHTML = JSON.parse(dataEl.textContent).map(function (t) {
                     var predicate = escapeHtml(t[2]) + (t[3] ? '<span class="idref">' + escapeHtml(t[3]) + '</span>' : '');
-                    var object = t[6] === 'ne' || t[5] ? link(t[4], t[5]) : escapeHtml(t[4]);
+                    var object = t[6] === 'concept' || t[5] ? link(t[4], t[5]) : escapeHtml(t[4]);
                     return '<tr><td>' + link(t[0], t[1]) + '</td><td>' + predicate + '</td><td>' + object +
                         ' <span class="tag">' + escapeHtml(t[6]) + '</span></td></tr>';
                 }).join('');

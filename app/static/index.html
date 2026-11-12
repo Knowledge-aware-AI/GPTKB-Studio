@@ -149,7 +149,7 @@
             <div class="hero-metric accent"><div data-role="elapsed-time" class="m-value">-</div><div class="m-label">Elapsed</div></div>
             <div class="hero-metric"><div data-role="processed" class="m-value">0</div><div class="m-label">Ent. processed</div></div>
             <div class="hero-metric"><div data-role="triples" class="m-value">0</div><div class="m-label">Triples</div></div>
-            <div class="hero-metric" title="Elicited triples whose objects, relations or classes are still being disambiguated. A run ends when these are done and no entity is left to explore."><div data-role="pending" class="m-value">-</div><div class="m-label">Objects to process</div></div>
+            <div class="hero-metric" title="Elicited triples whose objects or relations are still being disambiguated. A run ends when these are done and no concept is left to explore."><div data-role="pending" class="m-value">-</div><div class="m-label">Objects to process</div></div>
             <div class="hero-metric"><div data-role="failed-subjects" class="m-value">0</div><div class="m-label">Failed</div></div>
             <div class="hero-metric"><div data-role="literals" class="m-value">0</div><div class="m-label">Literals</div></div>
             <div class="hero-metric"><div data-role="live-cost" class="m-value">-</div><div class="m-label">Cost</div></div>
@@ -204,7 +204,7 @@
                 <span class="field-label">Model
                   <span class="info-tooltip" tabindex="0">
                     <span class="info-icon" aria-hidden="true">i</span>
-                    <span class="info-tooltip-text">Does all three tasks of a run: stating the facts about each entity (elicitation), recognizing which objects of the facts are named entities (NER), and deciding which mentions refer to the same entity, relation or class (NED). Under Advanced, NER and NED can each use a different model.</span>
+                    <span class="info-tooltip-text">Does all three tasks of a run: stating the facts about each concept (elicitation), recognizing which objects of the facts are concepts (CR), and deciding which mentions refer to the same concept or relation (CD). Under Advanced, CR and CD can each use a different model.</span>
                   </span>
                 </span>
                 <select data-role="model-select" name="model" required>
@@ -232,8 +232,8 @@
                 <input type="text" name="topic" value="the ancient city of Babylon" required />
               </label>
               <label class="field">
-                <span class="field-label">Seed entity</span>
-                <input type="text" name="seed_entity" value="Hammurabi" required />
+                <span class="field-label">Seed concept</span>
+                <input type="text" name="seed_concept" value="Hammurabi" required />
               </label>
               <div class="field-row">
                 <label class="field">
@@ -272,44 +272,44 @@
 
                   <h2 class="section-title">Models per task</h2>
                   <label class="field">
-                    <span class="field-label">NER model
+                    <span class="field-label">Concept recognition model
                       <span class="info-tooltip" tabindex="0">
                         <span class="info-icon" aria-hidden="true">i</span>
-                        <span class="info-tooltip-text">Named entity recognition: decides, for each elicited triple, whether its object is a named entity or a literal.</span>
+                        <span class="info-tooltip-text">Concept recognition: decides, for each elicited triple, whether its object is a concept or a literal.</span>
                       </span>
                     </span>
-                    <select data-role="ner-model-select">
+                    <select data-role="cr-model-select">
                       <option value="">Enter an API key to load models</option>
                     </select>
-                    <input data-role="ner-model-custom" class="hidden" placeholder="model name on the custom endpoint" />
+                    <input data-role="cr-model-custom" class="hidden" placeholder="model name on the custom endpoint" />
                   </label>
                   <label class="field">
-                    <span class="field-label">NED model
+                    <span class="field-label">Disambiguation model
                       <span class="info-tooltip" tabindex="0">
                         <span class="info-icon" aria-hidden="true">i</span>
-                        <span class="info-tooltip-text">Named entity disambiguation: matches each named entity, relation and class against existing candidates, and writes descriptions for new ones.</span>
+                        <span class="info-tooltip-text">Concept disambiguation: matches each concept and relation against existing candidates, and writes descriptions for new ones.</span>
                       </span>
                     </span>
-                    <select data-role="ned-model-select">
+                    <select data-role="cd-model-select">
                       <option value="">Enter an API key to load models</option>
                     </select>
-                    <input data-role="ned-model-custom" class="hidden" placeholder="model name on the custom endpoint" />
+                    <input data-role="cd-model-custom" class="hidden" placeholder="model name on the custom endpoint" />
                   </label>
 
                   <h2 class="section-title">Disambiguation</h2>
                   <div class="field-row">
-                    <label class="field"><span class="field-label">NED candidates
+                    <label class="field"><span class="field-label">CD candidates
                       <span class="info-tooltip" tabindex="0">
                         <span class="info-icon" aria-hidden="true">i</span>
-                        <span class="info-tooltip-text">How many existing entities the NED model is shown as possible matches for each mention (default 5). More candidates catch more merges but make each decision longer.</span>
+                        <span class="info-tooltip-text">How many existing concepts the CD model is shown as possible matches for each mention (default 5). More candidates catch more merges but make each decision longer.</span>
                       </span>
-                    </span><input name="ned_candidates" type="number" min="1" max="10" value="5" required /></label>
+                    </span><input name="cd_candidates" type="number" min="1" max="10" value="5" required /></label>
                   </div>
                   <label class="field slider-row">
-                    <span class="field-label">Entity merging
+                    <span class="field-label">Concept merging
                       <span class="info-tooltip" tabindex="0">
                         <span class="info-icon" aria-hidden="true">i</span>
-                        <span class="info-tooltip-text">How readily different names are merged into one entity (e.g. &ldquo;MIT&rdquo; and &ldquo;Massachusetts Institute of Technology&rdquo;). On Standard, the NED model is shown the existing entities whose names are most similar to a new mention and decides whether one of them is the same entity. Moving the slider right, an existing entity is only shown if its name is at least this similar to the mention, so fewer but safer merges are made &mdash; at the cost of more duplicate entities. Entities with exactly the same name are always shown.</span>
+                        <span class="info-tooltip-text">How readily different names are merged into one concept (e.g. &ldquo;MIT&rdquo; and &ldquo;Massachusetts Institute of Technology&rdquo;). On Standard, the CD model is shown the existing concepts whose names are most similar to a new mention and decides whether one of them is the same concept. Moving the slider right, an existing concept is only shown if its name is at least this similar to the mention, so fewer but safer merges are made &mdash; at the cost of more duplicate concepts. Concepts with exactly the same name are always shown.</span>
                       </span>
                       <span class="value" data-role="merge-label">Standard</span>
                     </span>
@@ -329,7 +329,7 @@
                   </div>
 
                   <h2 class="section-title">Stopping Criteria</h2>
-                  <label class="check-row"><input name="use_entities" type="checkbox" /> Entities <input name="max_entities" type="number" min="1" placeholder="300" /></label>
+                  <label class="check-row"><input name="use_concepts" type="checkbox" /> Concepts <input name="max_concepts" type="number" min="1" placeholder="300" /></label>
                   <label class="check-row"><input name="use_bfs" type="checkbox" /> BFS depth <input name="max_bfs_depth" type="number" min="0" placeholder="4" /></label>
                   <label class="check-row"><input name="use_cost" type="checkbox" /> Cost <div class="unit-input"><input name="max_cost" type="number" min="0" step="0.01" placeholder="10.00" /><span>$</span></div></label>
                   <label class="check-row"><input name="use_runtime" type="checkbox" /> Runtime <div class="unit-input"><input name="max_runtime_seconds" type="number" min="1" placeholder="3600" /><span>s</span></div></label>

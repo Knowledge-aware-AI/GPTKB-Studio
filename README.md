@@ -2,13 +2,13 @@
 
 GPTKB Studio is a web application for building small, topic-specific knowledge
 bases from what a large language model knows. You choose a topic, a seed
-entity and a model; GPTKB Studio asks the model for facts about the seed as
-subject–predicate–object triples, recognizes the named entities among the
-objects, decides whether each one is an entity it already has or a new one,
+concept and a model; GPTKB Studio asks the model for facts about the seed as
+subject–predicate–object triples, recognizes the concepts among the
+objects, decides whether each one is an concept it already has or a new one,
 and then asks about the new ones, round after round, until nothing new is left
 or a budget runs out.
 
-Entities, relations and classes are disambiguated during construction with the
+Concepts and relations are disambiguated during construction with the
 pipeline of [GPTKB 2.0](https://github.com/Knowledge-aware-AI/GPTKB2_disambiguation_on_the_fly),
 so the result has canonical identifiers rather than strings, and every merge
 decision can be inspected.
@@ -19,21 +19,21 @@ A hosted instance runs at <https://gptkbstudio.scads.ai/>.
 
 - **Any model, any OpenAI-compatible endpoint:** presets for ScaDS.AI, OpenAI
   and OpenRouter, or a custom URL (e.g. a self-hosted vLLM server; on a local network only with `MINIGPTKB_ALLOW_PRIVATE_ENDPOINTS=1`). One model
-  does all three tasks (fact elicitation, named entity recognition,
-  disambiguation) unless NER and NED are given models of their own under
+  does all three tasks (fact elicitation, concept recognition,
+  disambiguation) unless CR and CD are given models of their own under
   *Advanced*.
 - **Topic-scoped, multilingual elicitation:** 11 pre-packaged prompt languages, an editable
   prompt, open, example-driven or fixed-ontology schema.
-- **Budgets:** caps on entities, BFS depth, cost (USD) and runtime. Entity and
+- **Budgets:** caps on concepts, BFS depth, cost (USD) and runtime. Concept and
   depth caps stop the exploration but let pending disambiguation finish.
 - **Live view:** metrics, the current pipeline step and the log stream into
   the browser; runs can be paused, stopped and resumed, also after a server
   restart.
 - **Controllable merging:** a slider trades fewer wrong merges for more
-  duplicates by restricting which existing entities are offered as matches.
+  duplicates by restricting which existing concepts are offered as matches.
 - **Results:** a browsable HTML report per run (statistics, an interactive
-  graph, one page per entity with its disambiguation trace) and a SQLite
-  database with entities, relations, classes, aliases, triples and every
+  graph, one page per concept with its disambiguation trace) and a SQLite
+  database with concepts, relations, aliases, triples and every
   disambiguation decision.
 - **Shared, rate-limited endpoints:** requests are paced per model below the
   limits the endpoint reports.
@@ -44,22 +44,44 @@ Each run is a separate worker process. In every round it runs the GPTKB 2.0
 stages on whatever items are ready for them:
 
 ```
-NEDG -> NED2 -> NED1 -> Elicitation -> PDG -> CDG -> PD -> CD -> NER
+CDG -> CD2 -> CD1 -> Elicitation -> PDG -> PD -> CR
 ```
 
-- **Elicitation** asks for the facts about unexplored entities.
-- **NER** classifies each triple's object as a named entity or a literal.
-- **NED1** matches an object against the most similar existing entities, using
-  its triple as context; **NEDG** writes a description for objects without a
-  match, and **NED2** matches again using that description, or creates a new
-  entity.
-- **PD/PDG** and **CD/CDG** do the same for relations and classes.
+- **Elicitation** asks for the facts about unexplored concepts.
+- **CR** classifies each triple's object as a concept or a literal.
+- **CD1** matches an object against the most similar existing concepts, using
+  its triple as context; **CDG** writes a description for objects without a
+  match, and **CD2** matches again using that description, or creates a new
+  concept.
+- **PD/PDG** disambiguate relations and describe new ones.
+
+Concepts include both particular individuals (such as Albert Einstein) and
+general concepts (such as gravity, physicist and spacetime). Objects have two
+semantic types: `concept` and `literal`. All concepts share one `concepts`
+table, alias collection, candidate index and expansion queue. `instanceOf`
+and `subClassOf` are distinct ordinary relations whose targets are expandable
+concepts. Every concept should have at least one triple using either relation;
+all 11 default elicitation prompts request this. This is a prompt instruction,
+not a guarantee that a model will supply a correct typing fact.
+
+The API and run configuration use `seed_concept`, `max_concepts`, `cr_model`
+(concept recognition), and `cd_model` (concept disambiguation), with matching
+`cr_*` and `cd_*` endpoint and candidate settings. Older field names are
+accepted at the API/settings boundary. New exports and reports use concept
+terminology throughout.
+
+On resuming an original disambiguated run, its database is migrated in one
+transaction. Existing node IDs and decision traces are retained; former
+class nodes enter the expansion queue. Former literals are recognized again
+because the old recognizer treated general concepts as literals. This may
+require additional model calls. Review any saved custom elicitation prompt
+to remove a named-entity-only restriction before resuming it.
 
 Candidates are retrieved by label embedding (Qwen3-Embedding-4B). The state of
 a run lives in `runs/<run id>/knowledgeBase.db`, which is also its export and
 what a resumed run continues from.
 
-The original crawler, which identifies entities by their names as in the
+The original crawler, which identifies concepts by their names as in the
 miniGPTKB method it grew out of, is
 kept in `app/runner.py`; runs made with it stay viewable and resumable, and new
 ones can be started through the API with `"pipeline": "classic"`.
@@ -84,7 +106,7 @@ Then open <http://127.0.0.1:8000>.
 > Ollama): the endpoint and model are set in `app/disambig/runner.py`
 > (`SCADS_EMBEDDING_URL`, `DEFAULT_EMBEDDING_MODEL`) and the key in
 > `app/server.py`. With a different embedding model, the similarity thresholds
-> of the entity-merging slider and of label clustering may need adjusting.
+> of the concept-merging slider and of label clustering may need adjusting.
 
 Environment variables:
 
@@ -137,7 +159,7 @@ TBA
 GPTKB Studio is released under the
 [Creative Commons Attribution 4.0 International](LICENSE) license.
 
-The prompts in `app/disambig/prompts/` are taken from the GPTKB 2.0 repository
+The prompts in `app/disambig/prompts/` are adapted from the GPTKB 2.0 repository
 and remain under the Apache License 2.0 (`app/disambig/prompts/LICENSE-GPTKB2`,
 source commit in `app/disambig/prompts/SOURCE`). `app/vendor/vis-network.min.js`
 is dual-licensed under the Apache License 2.0 and MIT.

@@ -1,7 +1,7 @@
 """HTML report of a disambiguated GPTKB Studio run: an index page with run
 statistics (including how many surface labels were consolidated into how
-many entities, and which labels denote several distinct entities) plus one
-page per entity, named by its id (E12.html) since labels are not unique."""
+many concepts, and which labels denote several distinct concepts) plus one
+page per concept, named by its id (E12.html) since labels are not unique."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ _NODE_PALETTE = [
 _NODE_LABEL = "#1f2a30"
 MAX_GRAPH_NODES = 400
 MAX_GRAPH_EDGES = 1500  # more edges make the browser's graph layout slow on large runs
-MAX_INDEX_ENTITIES = 3000
+MAX_INDEX_CONCEPTS = 3000
 MAX_INDEX_TRIPLES = 5000
 DISAMBIGUATION_EXAMPLES = 3  # rows in the homonymy and synonymy example tables
 
@@ -133,12 +133,12 @@ class ReportWriter:
             shutil.copyfile(_VIS, self.html_dir / "vis-network.min.js")
 
         if full:
-            ids = [row[0] for row in self.db.execute("SELECT id FROM entities ORDER BY seq")]
+            ids = [row[0] for row in self.db.execute("SELECT id FROM concepts ORDER BY seq")]
         else:
-            ids = sorted(self.runner.dirty_entities)
-        self.runner.dirty_entities.clear()
-        for entity_id in ids:
-            self._write_entity(entity_id)
+            ids = sorted(self.runner.dirty_concepts)
+        self.runner.dirty_concepts.clear()
+        for concept_id in ids:
+            self._write_concept(concept_id)
         self._write_index()
         if final:
             self._write_triples_export()
@@ -152,41 +152,40 @@ class ReportWriter:
         s = self._scalar
         stats = {
             "triples": s("SELECT COUNT(*) FROM triples"),
-            "entities": s("SELECT COUNT(*) FROM entities"),
-            "explored": s("SELECT COUNT(*) FROM entities WHERE status = 'explored'"),
-            "unexplored": s("SELECT COUNT(*) FROM entities WHERE status = 'unexplored'"),
-            "failed_entities": s("SELECT COUNT(*) FROM entities WHERE status = 'failed'"),
-            "empty_entities": s("SELECT COUNT(*) FROM entities WHERE status = 'explored' AND num_triples = 0"),
-            "predicates": s("SELECT COUNT(*) FROM predicates"),
             "concepts": s("SELECT COUNT(*) FROM concepts"),
+            "explored": s("SELECT COUNT(*) FROM concepts WHERE status = 'explored'"),
+            "unexplored": s("SELECT COUNT(*) FROM concepts WHERE status = 'unexplored'"),
+            "failed_concepts": s("SELECT COUNT(*) FROM concepts WHERE status = 'failed'"),
+            "empty_concepts": s("SELECT COUNT(*) FROM concepts WHERE status = 'explored' AND num_triples = 0"),
+            "predicates": s("SELECT COUNT(*) FROM predicates"),
             "literals": s("SELECT COUNT(*) FROM triples WHERE object_type = 'literal'"),
-            "max_depth": s("SELECT COALESCE(MAX(depth), 0) FROM entities"),
+            "max_depth": s("SELECT COALESCE(MAX(depth), 0) FROM concepts"),
             "pending": s("SELECT COUNT(*) FROM triples WHERE object_status != 'finished' OR predicate_status != 'finished'"),
             "failures": s("SELECT COUNT(*) FROM failures"),
-            "aliases": s("SELECT COUNT(*) FROM entity_aliases"),
+            "aliases": s("SELECT COUNT(*) FROM concept_aliases"),
         }
         resolution = dict(
             self.db.execute(
-                "SELECT resolution, COUNT(*) FROM triples WHERE object_type = 'ne' GROUP BY resolution"
+                "SELECT resolution, COUNT(*) FROM triples WHERE object_type = 'concept' GROUP BY resolution"
             ).fetchall()
         )
         stats["resolution"] = {key or "pending": value for key, value in resolution.items()}
-        # Surface labels: every distinct string an entity was mentioned by
+        # Surface labels: every distinct string an concept was mentioned by
         # (its label plus each differently-labelled mention resolved to it) --
-        # what a string-identity KB would have had as its entities.
+        # what a string-identity KB would have had as its concepts.
         stats["surface_labels"] = s(
-            "SELECT COUNT(*) FROM (SELECT label FROM entities UNION "
-            "SELECT object_label FROM triples WHERE object_type = 'ne' AND object_id IS NOT NULL)"
+            "SELECT COUNT(*) FROM (SELECT label FROM concepts UNION "
+            "SELECT object_label FROM triples WHERE object_type = 'concept' AND object_id IS NOT NULL)"
         )
-        stats["homonym_labels"] = s("SELECT COUNT(*) FROM (SELECT label FROM entities GROUP BY label HAVING COUNT(*) > 1)")
-        stats["homonym_entities"] = s(
-            "SELECT COALESCE(SUM(n), 0) FROM (SELECT COUNT(*) AS n FROM entities GROUP BY label HAVING COUNT(*) > 1)"
+        stats["homonym_labels"] = s("SELECT COUNT(*) FROM (SELECT label FROM concepts GROUP BY label HAVING COUNT(*) > 1)")
+        stats["homonym_concepts"] = s(
+            "SELECT COALESCE(SUM(n), 0) FROM (SELECT COUNT(*) AS n FROM concepts GROUP BY label HAVING COUNT(*) > 1)"
         )
         stats["relation_labels"] = s(
             "SELECT COUNT(DISTINCT predicate_label) FROM triples WHERE predicate_id IS NOT NULL"
         )
         stats["class_labels"] = s(
-            "SELECT COUNT(DISTINCT concept_label) FROM instance_triples WHERE concept_id IS NOT NULL"
+            "SELECT COUNT(DISTINCT object_id) FROM triples WHERE predicate_id = 'P0'"
         )
         return stats
 
@@ -200,9 +199,8 @@ class ReportWriter:
 
         metrics = [
             ("Triples", stats["triples"]),
-            ("Entities", stats["entities"]),
+            ("Concepts", stats["concepts"]),
             ("Relations", stats["predicates"]),
-            ("Classes", stats["concepts"]),
             ("Literals", stats["literals"]),
             ("Max BFS depth", stats["max_depth"]),
         ]
@@ -218,8 +216,8 @@ class ReportWriter:
             ) if bit
         ) or "Not applicable"
         limits = []
-        if config.max_entities:
-            limits.append(f"Max entities: {config.max_entities:,}")
+        if config.max_concepts:
+            limits.append(f"Max concepts: {config.max_concepts:,}")
         if config.max_bfs_depth is not None:
             limits.append(f"Max BFS depth: {config.max_bfs_depth}")
         if config.max_runtime_seconds:
@@ -230,16 +228,16 @@ class ReportWriter:
         cost = ("<$0.01" if 0 < total < 0.01 else f"${total:,.2f}") if runner._cost_tracked() else "Not tracked"
         config_items = [
             ("Elicitation model", runner.llm.model_label("elicitation")),
-            ("NER model", runner.llm.model_label("ner")),
-            ("NED model", runner.llm.model_label("ned")),
+            ("CR model", runner.llm.model_label("cr")),
+            ("CD model", runner.llm.model_label("cd")),
             ("Embeddings", config.embedding_model),
             ("Endpoint", config.llm_url),
             ("Language", language),
             ("Runtime (this session)", _format_duration(elapsed)),
             ("Cost", cost),
             ("Parallel requests", str(config.nthreads)),
-            ("Entity merging", f"Names ≥ {round(config.ned_similarity_floor * 100)}% similar" if config.ned_similarity_floor else "Standard"),
-            ("NED candidates", str(config.ned_candidates)),
+            ("Concept merging", f"Names ≥ {round(config.cd_similarity_floor * 100)}% similar" if config.cd_similarity_floor else "Standard"),
+            ("CD candidates", str(config.cd_candidates)),
             ("Reasoning (elicitation)", reasoning),
             ("Stopping criteria", ", ".join(limits) or "None set"),
             ("Generated", time.strftime("%Y-%m-%d %H:%M")),
@@ -249,17 +247,16 @@ class ReportWriter:
         )
 
         res = stats["resolution"]
-        merged = res.get("ned1", 0) + res.get("ned2", 0)
+        merged = res.get("cd1", 0) + res.get("cd2", 0)
         disamb_items = [
-            ("Surface labels", stats["surface_labels"], f"consolidated into {stats['entities']:,} entities"),
+            ("Surface labels", stats["surface_labels"], f"consolidated into {stats['concepts']:,} concepts"),
             ("Merged mentions", merged + res.get("cache", 0),
-             f"{res.get('ned1', 0):,} triple-context, {res.get('ned2', 0):,} description-context, {res.get('cache', 0):,} cached"),
-            ("New entities", res.get("new", 0), "created by description-context NED"),
-            ("Shared labels", stats["homonym_labels"], f"{stats['homonym_entities']:,} distinct entities share them"),
-            ("Aliases", stats["aliases"], "alternative labels attached to entities"),
+             f"{res.get('cd1', 0):,} triple-context, {res.get('cd2', 0):,} description-context, {res.get('cache', 0):,} cached"),
+            ("New concepts", res.get("new", 0), "created by description-context CD"),
+            ("Shared labels", stats["homonym_labels"], f"{stats['homonym_concepts']:,} distinct concepts share them"),
+            ("Aliases", stats["aliases"], "alternative labels attached to concepts"),
             ("Relations", stats["predicates"], f"from {stats['relation_labels']:,} relation labels"),
-            ("Classes", stats["concepts"], f"from {stats['class_labels']:,} class labels"),
-            ("Unsure / failed", res.get("unsure", 0) + res.get("failed", 0), "objects left without an entity id"),
+            ("Unsure / failed", res.get("unsure", 0) + res.get("failed", 0), "objects left without an concept id"),
         ]
         disamb_html = "".join(
             f'<div class="stat"><span>{escape(n)}</span><strong>{v:,}</strong><em>{escape(e)}</em></div>'
@@ -267,7 +264,7 @@ class ReportWriter:
         )
 
         homonym_rows = self.db.execute(
-            "SELECT label, COUNT(*) AS n FROM entities GROUP BY label HAVING n > 1 ORDER BY n DESC, label LIMIT ?",
+            "SELECT label, COUNT(*) AS n FROM concepts GROUP BY label HAVING n > 1 ORDER BY n DESC, label LIMIT ?",
             (DISAMBIGUATION_EXAMPLES,),
         ).fetchall()
         homonym_html = ""
@@ -275,7 +272,7 @@ class ReportWriter:
             rows = []
             for label, count in homonym_rows:
                 members = self.db.execute(
-                    "SELECT id, description FROM entities WHERE label = ? ORDER BY seq LIMIT 6", (label,)
+                    "SELECT id, description FROM concepts WHERE label = ? ORDER BY seq LIMIT 6", (label,)
                 ).fetchall()
                 links = "<br>".join(
                     f'<a href="{escape(eid)}.html">{escape(eid)}</a> <span class="muted small">{escape(_clip(desc, 140))}</span>'
@@ -284,22 +281,22 @@ class ReportWriter:
                 more = f'<br><span class="muted small">… and {count - len(members)} more</span>' if count > len(members) else ""
                 rows.append(f'<tr><td class="nowrap">{escape(label)}</td><td>{count}</td><td>{links}{more}</td></tr>')
             homonym_html = (
-                "<h3>Labels denoting several entities (homonymy)</h3>"
-                f'<p class="small">{_top_n(len(homonym_rows), "label", "labels")} shared by the most entities.</p><div class="table-scroll"><table>'
-                "<thead><tr><th>Label</th><th class=\"nowrap\">Entities</th><th>Distinguished as</th></tr></thead><tbody>"
+                "<h3>Labels denoting several concepts (homonymy)</h3>"
+                f'<p class="small">{_top_n(len(homonym_rows), "label", "labels")} shared by the most concepts.</p><div class="table-scroll"><table>'
+                "<thead><tr><th>Label</th><th class=\"nowrap\">Concepts</th><th>Distinguished as</th></tr></thead><tbody>"
                 + "".join(rows) + "</tbody></table></div>"
             )
         alias_rows = self.db.execute(
-            "SELECT e.id, e.label, COUNT(*) AS n, GROUP_CONCAT(a.alias, ' · ') FROM entity_aliases a "
-            "JOIN entities e ON e.id = a.entity_id GROUP BY e.id ORDER BY n DESC, e.seq LIMIT ?",
+            "SELECT e.id, e.label, COUNT(*) AS n, GROUP_CONCAT(a.alias, ' · ') FROM concept_aliases a "
+            "JOIN concepts e ON e.id = a.concept_id GROUP BY e.id ORDER BY n DESC, e.seq LIMIT ?",
             (DISAMBIGUATION_EXAMPLES,),
         ).fetchall()
         alias_html = ""
         if alias_rows:
             alias_html = (
-                "<h3>Entities with the most aliases (synonymy)</h3>"
-                f'<p class="small">{_top_n(len(alias_rows), "entity", "entities")} with the most aliases.</p><div class="table-scroll"><table>'
-                "<thead><tr><th>Entity</th><th class=\"nowrap\">Aliases</th><th>Merged labels</th></tr></thead><tbody>"
+                "<h3>Concepts with the most aliases (synonymy)</h3>"
+                f'<p class="small">{_top_n(len(alias_rows), "concept", "concepts")} with the most aliases.</p><div class="table-scroll"><table>'
+                "<thead><tr><th>Concept</th><th class=\"nowrap\">Aliases</th><th>Merged labels</th></tr></thead><tbody>"
                 + "".join(
                     f'<tr><td class="nowrap"><a href="{escape(eid)}.html">{escape(label)}</a><span class="idref">{escape(eid)}</span></td>'
                     f"<td>{n}</td><td>{escape(_clip(aliases, 400))}</td></tr>"
@@ -313,9 +310,9 @@ class ReportWriter:
             f"{pending:,} object{'' if pending == 1 else 's'} still being disambiguated. "
             f"{unexplored:,} entit{'y' if unexplored == 1 else 'ies'} waiting to be explored."
         )
-        if stats["empty_entities"]:
+        if stats["empty_concepts"]:
             status_note += (
-                f" {stats['empty_entities']:,} explored entities returned no facts (unknown to the model or off-topic)."
+                f" {stats['empty_concepts']:,} explored concepts returned no facts (unknown to the model or off-topic)."
             )
         if stats["failures"]:
             status_note += f" {stats['failures']:,} items failed repeatedly (see Failures below)."
@@ -325,10 +322,10 @@ class ReportWriter:
             "GROUP BY t.predicate_id ORDER BY n DESC LIMIT 10"
         ).fetchall()
         top_classes = self.db.execute(
-            "SELECT c.label, COUNT(*) AS n FROM instance_triples it JOIN concepts c ON c.id = it.concept_id "
-            "GROUP BY it.concept_id ORDER BY n DESC LIMIT 10"
+            "SELECT c.label, COUNT(*) AS n FROM triples t JOIN concepts c ON c.id = t.object_id "
+            "WHERE t.predicate_id = 'P0' GROUP BY t.object_id ORDER BY n DESC LIMIT 10"
         ).fetchall()
-        depth_rows = self.db.execute("SELECT depth, COUNT(*) FROM entities GROUP BY depth ORDER BY depth").fetchall()
+        depth_rows = self.db.execute("SELECT depth, COUNT(*) FROM concepts GROUP BY depth ORDER BY depth").fetchall()
         # Full width, one after another, each as tall as its bars.
         charts = "".join(
             f'<section class="band">{chart}</section>'
@@ -337,7 +334,7 @@ class ReportWriter:
                            [(l, n) for l, n in top_relations]),
                 _bar_chart("Top Classes", "Most common classes (instanceOf objects).",
                            [(l, n) for l, n in top_classes]),
-                _bar_chart("BFS Depth Reached", "Entities discovered at each hop from the seed.",
+                _bar_chart("BFS Depth Reached", "Concepts discovered at each hop from the seed.",
                            [(f"Depth {d}", n) for d, n in depth_rows]),
             )
             if chart
@@ -362,21 +359,21 @@ class ReportWriter:
 
         nodes, edges, truncated = self._graph()
         graph_note = (
-            f'<p class="graph-note">Showing the {len(nodes):,} most-connected of {stats["entities"]:,} entities. '
-            "Double-click an entity to open its page.</p>"
-            if truncated else '<p class="graph-note">Double-click an entity to open its page.</p>'
+            f'<p class="graph-note">Showing the {len(nodes):,} most-connected of {stats["concepts"]:,} concepts. '
+            "Double-click an concept to open its page.</p>"
+            if truncated else '<p class="graph-note">Double-click an concept to open its page.</p>'
         )
 
-        entities = self.db.execute(
-            "SELECT id, label, description FROM entities ORDER BY seq LIMIT ?", (MAX_INDEX_ENTITIES,)
+        concepts = self.db.execute(
+            "SELECT id, label, description FROM concepts ORDER BY seq LIMIT ?", (MAX_INDEX_CONCEPTS,)
         ).fetchall()
-        entity_list = "".join(
+        concept_list = "".join(
             f'<li><a href="{escape(eid)}.html" title="{escape(desc)}">{escape(label)}</a><span class="idref">{escape(eid)}</span></li>'
-            for eid, label, desc in entities
+            for eid, label, desc in concepts
         )
-        entity_note = (
-            f'<p class="graph-note">Showing the first {MAX_INDEX_ENTITIES:,} of {stats["entities"]:,} entities. '
-            "The complete set is in the downloadable database.</p>" if stats["entities"] > MAX_INDEX_ENTITIES else ""
+        concept_note = (
+            f'<p class="graph-note">Showing the first {MAX_INDEX_CONCEPTS:,} of {stats["concepts"]:,} concepts. '
+            "The complete set is in the downloadable database.</p>" if stats["concepts"] > MAX_INDEX_CONCEPTS else ""
         )
         triples = self.db.execute(
             "SELECT t.subject_label, t.subject_id, COALESCE(p.label, t.predicate_label), t.predicate_id, "
@@ -394,21 +391,21 @@ class ReportWriter:
 <div class="header-top">
 <div class="header-actions"><a class="download-button" href="/api/runs/{escape(run_id)}/download" download>&#8681; Download results</a>{_THEME_TOGGLE}</div></div>
 <h1 class="hero-title">{escape(config.topic)}</h1>
-<p class="lede">A disambiguated knowledge graph seeded from <a class="seed-chip" href="E0.html" title="The seed entity: where the crawl started">E0: {escape(config.seed_entity)}</a>, elicited from {escape(config.model_for('elicitation'))}.</p>
+<p class="lede">A disambiguated knowledge graph seeded from <a class="seed-chip" href="{escape(runner.seed_id)}.html" title="The seed concept: where the crawl started">{escape(runner.seed_id)}: {escape(config.seed_concept)}</a>, elicited from {escape(config.model_for('elicitation'))}.</p>
 <div class="metrics">{metrics_html}</div>
 </div></header>"""
         body = f"""<section class="band"><h2>Run Configuration</h2><div class="config-grid">{config_html}</div>
 <details class="reveal"><summary>Elicitation Prompt</summary><div class="reveal-body"><pre class="prompt-block">{prompt}</pre>
-<p class="small">Each subject's description is appended to this prompt ("Description of subject: ..."), so that homonymous subjects are elicited as the entity they denote.</p></div></details></section>
+<p class="small">Each subject's description is appended to this prompt ("Description of subject: ..."), so that homonymous subjects are elicited as the concept they denote.</p></div></details></section>
 <section class="band"><h2>Knowledge Graph</h2>{graph_note}<div id="graphCanvas" class="graph-canvas"></div></section>
 <section class="band"><h2>Run Status</h2><p class="note">{escape(status_note)}</p></section>
 {charts}
 <section class="band"><h2>Disambiguation</h2>
-<p>Entities, relations and classes have unique ids. Mentions with different labels are merged into one entity (synonymy), and one label can denote several distinct entities (homonymy).</p>
+<p>Concepts and relations have unique ids. Mentions with different labels are merged into one concept (synonymy), and one label can denote several distinct concepts (homonymy).</p>
 <div class="stat-grid">{disamb_html}</div>{homonym_html}{alias_html}</section>
-<section class="band"><details class="reveal"><summary>Entity Index <span class="count-badge" id="entityCount">{stats['entities']}</span></summary>
-<div class="reveal-body">{entity_note}<input type="text" id="entitySearch" class="search-box" placeholder="Filter entities by name or id&hellip;" autocomplete="off">
-<ul class="entity-grid" id="entityList">{entity_list}</ul></div></details></section>
+<section class="band"><details class="reveal"><summary>Concept Index <span class="count-badge" id="conceptCount">{stats['concepts']}</span></summary>
+<div class="reveal-body">{concept_note}<input type="text" id="conceptSearch" class="search-box" placeholder="Filter concepts by name or id&hellip;" autocomplete="off">
+<ul class="concept-grid" id="conceptList">{concept_list}</ul></div></details></section>
 <section class="band"><details class="reveal" id="triplesDetails"><summary>All Triples <span class="count-badge">{stats['triples']}</span></summary>
 <div class="reveal-body">{triple_note}<div class="table-scroll"><table><thead><tr><th>Subject</th><th>Relation</th><th>Object</th></tr></thead>
 <tbody id="tripleTableBody"></tbody></table></div></div></details></section>
@@ -419,7 +416,7 @@ class ReportWriter:
             + _json_island("graph-edges-data", edges)
             + _json_island("triple-data", [list(t) for t in triples])
         )
-        html = _page(f"{config.seed_entity} — GPTKB Studio", header, body, scripts)
+        html = _page(f"{config.seed_concept} — GPTKB Studio", header, body, scripts)
         (self.html_dir / "index.html").write_text(html, encoding="utf-8")
 
     def _graph(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
@@ -428,11 +425,11 @@ class ReportWriter:
             SELECT e.id, e.label, e.depth,
                    (SELECT COUNT(*) FROM triples WHERE subject_id = e.id AND object_id IS NOT NULL)
                  + (SELECT COUNT(*) FROM triples WHERE object_id = e.id) AS degree
-            FROM entities e ORDER BY degree DESC, e.seq LIMIT ?
+            FROM concepts e ORDER BY degree DESC, e.seq LIMIT ?
             """,
             (MAX_GRAPH_NODES,),
         ).fetchall()
-        total = self._scalar("SELECT COUNT(*) FROM entities")
+        total = self._scalar("SELECT COUNT(*) FROM concepts")
         selected = {row[0] for row in rows}
         nodes = [
             {
@@ -446,8 +443,8 @@ class ReportWriter:
                     "hover": {"background": _NODE_PALETTE[depth % len(_NODE_PALETTE)][0], "border": "#0e7c8f"},
                 },
                 "font": {"color": _NODE_LABEL},
-                "size": 24 if eid == "E0" else min(10 + degree * 1.5, 40),
-                "borderWidth": 3 if eid == "E0" else 1.5,
+                "size": 24 if eid == self.runner.seed_id else min(10 + degree * 1.5, 40),
+                "borderWidth": 3 if eid == self.runner.seed_id else 1.5,
             }
             for eid, label, depth, degree in rows
         ]
@@ -463,42 +460,42 @@ class ReportWriter:
                     break
         return nodes, edges, total > len(nodes)
 
-    # ---- entity pages ------------------------------------------------------
+    # ---- concept pages ------------------------------------------------------
 
-    def _entity_link(self, entity_id: str | None, label: str) -> str:
-        if not entity_id:
+    def _concept_link(self, concept_id: str | None, label: str) -> str:
+        if not concept_id:
             return escape(label)
-        return f'<a href="{escape(entity_id)}.html">{escape(label)}</a><span class="idref">{escape(entity_id)}</span>'
+        return f'<a href="{escape(concept_id)}.html">{escape(label)}</a><span class="idref">{escape(concept_id)}</span>'
 
-    def _write_entity(self, entity_id: str) -> None:
+    def _write_concept(self, concept_id: str) -> None:
         row = self.db.execute(
-            "SELECT id, label, description, status, depth, first_appeared, num_triples FROM entities WHERE id = ?",
-            (entity_id,),
+            "SELECT id, label, description, status, depth, first_appeared, num_triples FROM concepts WHERE id = ?",
+            (concept_id,),
         ).fetchone()
         if not row:
             return
         _, label, description, status, depth, first_appeared, num_triples = row
         aliases = [r[0] for r in self.db.execute(
-            "SELECT alias FROM entity_aliases WHERE entity_id = ? ORDER BY alias", (entity_id,)
+            "SELECT alias FROM concept_aliases WHERE concept_id = ? ORDER BY alias", (concept_id,)
         )]
         classes = self.db.execute(
-            "SELECT c.label, c.id FROM instance_triples it JOIN concepts c ON c.id = it.concept_id "
-            "WHERE it.entity_id = ? ORDER BY c.label",
-            (entity_id,),
+            "SELECT c.label, c.id FROM triples t JOIN concepts c ON c.id = t.object_id "
+            "WHERE t.subject_id = ? AND t.predicate_id = 'P0' ORDER BY c.label",
+            (concept_id,),
         ).fetchall()
         homonyms = self.db.execute(
-            "SELECT id, description FROM entities WHERE label = ? AND id != ? ORDER BY seq LIMIT 50", (label, entity_id)
+            "SELECT id, description FROM concepts WHERE label = ? AND id != ? ORDER BY seq LIMIT 50", (label, concept_id)
         ).fetchall()
 
         outgoing = self.db.execute(
             "SELECT COALESCE(p.label, t.predicate_label), t.predicate_label, t.predicate_id, t.object_label, t.object_id, "
             "t.object_type, t.object_status, t.resolution, e.label "
-            "FROM triples t LEFT JOIN predicates p ON p.id = t.predicate_id LEFT JOIN entities e ON e.id = t.object_id "
+            "FROM triples t LEFT JOIN predicates p ON p.id = t.predicate_id LEFT JOIN concepts e ON e.id = t.object_id "
             "WHERE t.subject_id = ? ORDER BY t.seq",
-            (entity_id,),
+            (concept_id,),
         ).fetchall()
         out_rows = []
-        for p_label, raw_p, p_id, o_label, o_id, o_type, o_status, resolution, o_entity_label in outgoing:
+        for p_label, raw_p, p_id, o_label, o_id, o_type, o_status, resolution, o_concept_label in outgoing:
             # What the model said comes first; what it was linked to (which
             # may be a wrong merge) follows, smaller, so that errors are
             # visible as such rather than emphasized.
@@ -508,26 +505,26 @@ class ReportWriter:
             else:
                 predicate = canonical_p
             if o_id:
-                link = self._entity_link(o_id, o_entity_label or o_label)
-                if o_entity_label and o_entity_label != o_label:
+                link = self._concept_link(o_id, o_concept_label or o_label)
+                if o_concept_label and o_concept_label != o_label:
                     obj = f'{escape(o_label)}<br><span class="muted small">linked to {link}</span>'
                 else:
                     obj = link
             else:
                 obj = escape(o_label)
-            kind = {"ne": "entity", "literal": "literal", "class": "class"}.get(o_type, "pending")
-            if o_type == "ne" and not o_id:
-                kind = resolution if resolution in ("unsure", "failed") else ("pending" if o_status != "finished" else "entity")
+            kind = {"concept": "concept", "literal": "literal"}.get(o_type, "pending")
+            if o_type == "concept" and not o_id:
+                kind = resolution if resolution in ("unsure", "failed") else ("pending" if o_status != "finished" else "concept")
             out_rows.append(f'<tr><td>{predicate}</td><td>{obj} <span class="tag">{escape(kind)}</span></td></tr>')
 
         incoming = self.db.execute(
             "SELECT t.subject_id, s.label, COALESCE(p.label, t.predicate_label), t.object_label, t.resolution "
-            "FROM triples t LEFT JOIN predicates p ON p.id = t.predicate_id LEFT JOIN entities s ON s.id = t.subject_id "
+            "FROM triples t LEFT JOIN predicates p ON p.id = t.predicate_id LEFT JOIN concepts s ON s.id = t.subject_id "
             "WHERE t.object_id = ? ORDER BY t.seq LIMIT 1000",
-            (entity_id,),
+            (concept_id,),
         ).fetchall()
         in_rows = [
-            f"<tr><td>{self._entity_link(s_id, s_label or s_id)}</td><td>{escape(p_label)}</td>"
+            f"<tr><td>{self._concept_link(s_id, s_label or s_id)}</td><td>{escape(p_label)}</td>"
             f"<td>{escape(o_label)}{'' if o_label == label else ' <span class=\"tag\">alias</span>'}"
             f' <span class="tag">{escape(resolution or "")}</span></td></tr>'
             for s_id, s_label, p_label, o_label, resolution in incoming
@@ -536,23 +533,23 @@ class ReportWriter:
         decisions = self.db.execute(
             "SELECT d.stage, d.target, d.context, d.candidates, d.outcome, t.subject_id, t.subject_label "
             "FROM decisions d LEFT JOIN triples t ON t.id = d.triple_id "
-            "WHERE d.chosen_id = ? AND d.stage IN ('ned1', 'ned2') ORDER BY d.id LIMIT 100",
-            (entity_id,),
+            "WHERE d.chosen_id = ? AND d.stage IN ('cd1', 'cd2') ORDER BY d.id LIMIT 100",
+            (concept_id,),
         ).fetchall()
         decision_rows = []
-        stage_names = {"ned1": "Triple-context NED", "ned2": "Description-context NED"}
+        stage_names = {"cd1": "Triple-context CD", "cd2": "Description-context CD"}
         for stage, target, context, candidate_json, outcome, s_id, s_label in decisions:
             try:
                 candidate_ids = json.loads(candidate_json or "[]")
             except json.JSONDecodeError:
                 candidate_ids = []
             labels = dict(self.db.execute(
-                f"SELECT id, label FROM entities WHERE id IN ({','.join('?' * len(candidate_ids))})", candidate_ids
+                f"SELECT id, label FROM concepts WHERE id IN ({','.join('?' * len(candidate_ids))})", candidate_ids
             ).fetchall()) if candidate_ids else {}
-            candidate_html = ", ".join(self._entity_link(c, labels.get(c, c)) for c in candidate_ids) or "<span class=\"muted\">none</span>"
-            verdict = "created this entity" if outcome == "new" else "matched this entity"
+            candidate_html = ", ".join(self._concept_link(c, labels.get(c, c)) for c in candidate_ids) or "<span class=\"muted\">none</span>"
+            verdict = "created this concept" if outcome == "new" else "matched this concept"
             decision_rows.append(
-                f"<tr><td>{escape(target)}<br><span class=\"muted small\">in {self._entity_link(s_id, s_label or '')}</span></td>"
+                f"<tr><td>{escape(target)}<br><span class=\"muted small\">in {self._concept_link(s_id, s_label or '')}</span></td>"
                 f"<td>{escape(stage_names.get(stage, stage))}<br><span class=\"muted small\">{escape(verdict)}</span></td>"
                 f"<td class=\"small\">{escape(context or '')}</td><td class=\"small\">{candidate_html}</td></tr>"
             )
@@ -563,9 +560,9 @@ class ReportWriter:
                 "SELECT subject_id, subject_label, predicate_label FROM triples WHERE id = ?", (first_appeared,)
             ).fetchone()
             if src:
-                first = f"First mentioned as the object of {self._entity_link(src[0], src[1])} &mdash; {escape(src[2])}."
-        elif entity_id == "E0":
-            first = "The seed entity, where the exploration starts."
+                first = f"First mentioned as the object of {self._concept_link(src[0], src[1])} &mdash; {escape(src[2])}."
+        elif concept_id == self.runner.seed_id:
+            first = "The seed concept, where the exploration starts."
 
         status_text = {
             "explored": f"Explored ({num_triples or 0} triples elicited)" if num_triples is not None else "Explored",
@@ -582,10 +579,10 @@ class ReportWriter:
         homonym_html = ""
         if homonyms:
             homonym_html = (
-                f'<section class="band"><h2>Other entities labelled "{escape(label)}"</h2>'
-                "<p>Distinct entities sharing this label, kept apart by disambiguation.</p><table><tbody>"
+                f'<section class="band"><h2>Other concepts labelled "{escape(label)}"</h2>'
+                "<p>Distinct concepts sharing this label, kept apart by disambiguation.</p><table><tbody>"
                 + "".join(
-                    f'<tr><td>{self._entity_link(hid, label)}</td><td class="small">{escape(hdesc)}</td></tr>'
+                    f'<tr><td>{self._concept_link(hid, label)}</td><td class="small">{escape(hdesc)}</td></tr>'
                     for hid, hdesc in homonyms
                 )
                 + "</tbody></table></section>"
@@ -594,25 +591,25 @@ class ReportWriter:
         if decision_rows:
             decisions_html = (
                 '<section class="band"><h2>Disambiguation Decisions</h2>'
-                "<p>Mentions resolved to this entity by the LLM, with the context and candidates it was shown.</p>"
+                "<p>Mentions resolved to this concept by the LLM, with the context and candidates it was shown.</p>"
                 '<div class="table-scroll"><table><thead><tr><th>Mention</th><th>Step</th><th>Context</th><th>Candidates</th></tr></thead><tbody>'
                 + "".join(decision_rows) + "</tbody></table></div></section>"
             )
 
         header = f"""<header class="compact"><div class="header-inner">
 <div class="header-top"><a class="header-link" href="index.html">&larr; {escape(self.runner.config.topic)}</a>{_THEME_TOGGLE}</div>
-<h1 class="hero-title">{escape(label)}<span class="entity-id">{escape(entity_id)}</span></h1>
+<h1 class="hero-title">{escape(label)}<span class="concept-id">{escape(concept_id)}</span></h1>
 <p class="description">{escape(description)}</p>
 </div></header>"""
         body = f"""<section class="band"><div class="config-grid">{facts_html}</div><p class="small">{first}</p></section>
 <section class="band"><h2>Outgoing</h2><div class="table-scroll"><table><thead><tr><th>Relation</th><th>Object</th></tr></thead><tbody>
-{''.join(out_rows) or '<tr><td colspan="2">No facts elicited for this entity yet.</td></tr>'}</tbody></table></div></section>
+{''.join(out_rows) or '<tr><td colspan="2">No facts elicited for this concept yet.</td></tr>'}</tbody></table></div></section>
 <section class="band"><h2>Incoming</h2><div class="table-scroll"><table><thead><tr><th>Subject</th><th>Relation</th><th>Mentioned as</th></tr></thead><tbody>
 {''.join(in_rows) or '<tr><td colspan="3">No incoming triples yet.</td></tr>'}</tbody></table></div></section>
 {decisions_html}
 {homonym_html}"""
-        html = _page(f"{label} ({entity_id}) — GPTKB Studio", header, body)
-        (self.html_dir / f"{entity_id}.html").write_text(html, encoding="utf-8")
+        html = _page(f"{label} ({concept_id}) — GPTKB Studio", header, body)
+        (self.html_dir / f"{concept_id}.html").write_text(html, encoding="utf-8")
 
     # ---- flat export ---------------------------------------------------------
 
@@ -622,12 +619,12 @@ class ReportWriter:
         with path.open("w", encoding="utf-8") as file:
             for row in self.db.execute(
                 "SELECT t.subject_id, t.subject_label, t.predicate_id, COALESCE(p.label, t.predicate_label), "
-                "t.object_id, t.object_label, t.object_type, it.concept_id "
+                "t.object_id, t.object_label, t.object_type "
                 "FROM triples t LEFT JOIN predicates p ON p.id = t.predicate_id "
-                "LEFT JOIN instance_triples it ON it.triple_id = t.id ORDER BY t.seq"
+                "ORDER BY t.seq"
             ):
-                s_id, s, p_id, p, o_id, o, o_type, concept_id = row
+                s_id, s, p_id, p, o_id, o, o_type = row
                 file.write(json.dumps(
-                    {"s_id": s_id, "s": s, "p_id": p_id, "p": p, "o_id": o_id or concept_id, "o": o, "o_type": o_type},
+                    {"s_id": s_id, "s": s, "p_id": p_id, "p": p, "o_id": o_id, "o": o, "o_type": o_type},
                     ensure_ascii=False,
                 ) + "\n")

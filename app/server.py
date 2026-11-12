@@ -33,7 +33,9 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from app.concept_compat import normalize_config
 
 from app import endpoints
 from app.redact import redactor
@@ -124,36 +126,41 @@ app.mount("/runs", StaticFiles(directory=RUNS_DIR), name="runs")
 
 
 class RunRequest(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def accept_legacy_fields(cls, value: Any) -> Any:
+        return normalize_config(value)
+
     llm_url: str = Field(default="https://llm.scads.ai/v1")
     api_key: str = Field(default="")
     # The elicitation model: no default, always chosen by the user.
     model: str = Field(min_length=1)
-    # Models for named entity recognition and for disambiguation (NED, plus
+    # Models for concept recognition and for disambiguation (CD, plus
     # relation/class disambiguation and description generation); empty means
     # "same as the elicitation model".
-    ner_model: str = Field(default="")
-    ned_model: str = Field(default="")
-    # Endpoints of the NER/NED models: empty (or the elicitation endpoint)
+    cr_model: str = Field(default="")
+    cd_model: str = Field(default="")
+    # Endpoints of the CR/CD models: empty (or the elicitation endpoint)
     # means the elicitation endpoint with its key; the only other allowed
     # endpoint is ScaDS.AI, with the shared key.
-    ner_llm_url: str = Field(default="")
-    ned_llm_url: str = Field(default="")
+    cr_llm_url: str = Field(default="")
+    cd_llm_url: str = Field(default="")
     topic: str = Field(default="the ancient city of Babylon")
-    seed_entity: str = Field(default="Hammurabi")
+    seed_concept: str = Field(default="Hammurabi")
     language: str = Field(default="en")
     schema_mode: str = Field(default="open")
     schema_text: str = Field(default="")
     prompt_template: str = Field(default="")
     facts_multiplier: float = Field(default=1.0, ge=0.25, le=3.0)
-    max_entities: int | None = Field(default=None, ge=1)
+    max_concepts: int | None = Field(default=None, ge=1)
     max_bfs_depth: int | None = Field(default=None, ge=0)
     max_runtime_seconds: int | None = Field(default=None, ge=1)
     max_cost: float | None = Field(default=None, ge=0)
     nthreads: int = Field(default=5, ge=1, le=50)
-    # Entity merging: candidates shown per NED decision, and the minimum
+    # Concept merging: candidates shown per CD decision, and the minimum
     # label similarity for a candidate (0 = GPTKB 2.0).
-    ned_candidates: int = Field(default=5, ge=1, le=10)
-    ned_similarity_floor: float = Field(default=0.0, ge=0.0, lt=1.0)
+    cd_candidates: int = Field(default=5, ge=1, le=10)
+    cd_similarity_floor: float = Field(default=0.0, ge=0.0, lt=1.0)
     max_requests_per_minute: int | None = Field(default=None, ge=1)
     folder_id: str | None = Field(default=None)
     new_folder_name: str | None = Field(default=None)
@@ -448,7 +455,7 @@ def _is_run_active(run_id: str) -> bool:
 
 
 # The config fields of a run that hold API keys.
-API_KEY_FIELDS = ("api_key", "ner_api_key", "ned_api_key", "embedding_api_key")
+API_KEY_FIELDS = ("api_key", "cr_api_key", "cd_api_key", "embedding_api_key")
 
 
 def _run_process_entry(
@@ -458,6 +465,7 @@ def _run_process_entry(
     pause_event: Any,
     stop_event: Any,
 ) -> None:
+    config_data = normalize_config(config_data)
     # Everything the run reports goes through the redactor, so an API key a
     # provider echoes in an error message never reaches the log or the page.
     redact = redactor(*(config_data.get(name) for name in API_KEY_FIELDS))
@@ -657,7 +665,8 @@ def _count_lines(path: Path) -> int:
 
 def _read_json(path: Path) -> Any:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return normalize_config(value) if path.name == "runConfig.json" else value
     except Exception:
         return None
 
@@ -730,7 +739,7 @@ def _directory_size(path: Path) -> int:
 
 
 def _infer_seed(depths: dict[str, int], processed: list[Any], queued: list[Any], config: dict[str, Any]) -> str:
-    configured_seed = str(config.get("seed_entity", "")).strip()
+    configured_seed = str(config.get("seed_concept", "")).strip()
     if configured_seed:
         return configured_seed
 
@@ -883,10 +892,10 @@ def _build_classification_prompt(topic: str, phrases: list[str]) -> str:
     return (
         f"I want you to classify object phrases from a knowledge graph about {topic}.\n\n"
         "Classify each phrase into exactly one of these categories:\n"
-        '- "domain_entity": a named entity that is relevant to the topic and should be expanded as a future subject.\n'
-        '- "off_domain_entity": a named entity, but not relevant to the topic.\n'
-        '- "literal": not a named entity, such as a date, number, URL, title, common noun, description, or verbose phrase.\n\n'
-        'Return only JSON in this exact shape: {"results": [{"phrase": "...", "category": "domain_entity|off_domain_entity|literal"}]}.\n'
+        '- "domain_concept": a concept that is relevant to the topic and should be expanded as a future subject.\n'
+        '- "off_domain_concept": a concept, but not relevant to the topic.\n'
+        '- "literal": not a concept, such as a date, number, URL, title, common noun, description, or verbose phrase.\n\n'
+        'Return only JSON in this exact shape: {"results": [{"phrase": "...", "category": "domain_concept|off_domain_concept|literal"}]}.\n'
         "Use the exact input phrase strings in the phrase field.\n\n"
         f"Phrases: {json.dumps(phrases, ensure_ascii=False)}"
     )
@@ -950,11 +959,11 @@ def _estimate_run_cost(run_dir: Path, config: dict[str, Any]) -> float | None:
                 if isinstance(row, dict) and row.get("text") is not None:
                     off_domain.append(str(row["text"]))
 
-    domain_entities = [str(item) for item in processed[1:]] + [str(item) for item in queued]
+    domain_concepts = [str(item) for item in processed[1:]] + [str(item) for item in queued]
     classified_rows = (
         [{"phrase": phrase, "category": "literal"} for phrase in literals]
-        + [{"phrase": phrase, "category": "off_domain_entity"} for phrase in off_domain]
-        + [{"phrase": phrase, "category": "domain_entity"} for phrase in domain_entities]
+        + [{"phrase": phrase, "category": "off_domain_concept"} for phrase in off_domain]
+        + [{"phrase": phrase, "category": "domain_concept"} for phrase in domain_concepts]
     )
 
     batch_size = int(config.get("classification_batch_size") or 30)
@@ -1012,14 +1021,14 @@ def _safe_run_config(
     safe_config["api_key"] = "***"
     safe_config["pipeline"] = pipeline
     if pipeline == CURRENT_PIPELINE:
-        safe_config["ner_model"] = request.ner_model.strip() or request.model
-        safe_config["ned_model"] = request.ned_model.strip() or request.model
+        safe_config["cr_model"] = request.cr_model.strip() or request.model
+        safe_config["cd_model"] = request.cd_model.strip() or request.model
         # Recorded explicitly (also when it is the elicitation endpoint).
-        safe_config["ner_llm_url"] = _role_llm_url(request, "ner") if request.ner_model.strip() else _normalize_url(request.llm_url)
-        safe_config["ned_llm_url"] = _role_llm_url(request, "ned") if request.ned_model.strip() else _normalize_url(request.llm_url)
+        safe_config["cr_llm_url"] = _role_llm_url(request, "cr") if request.cr_model.strip() else _normalize_url(request.llm_url)
+        safe_config["cd_llm_url"] = _role_llm_url(request, "cd") if request.cd_model.strip() else _normalize_url(request.llm_url)
         safe_config["embedding_model"] = DEFAULT_EMBEDDING_MODEL
     else:
-        for key in ("ner_model", "ned_model", "ner_llm_url", "ned_llm_url"):
+        for key in ("cr_model", "cd_model", "cr_llm_url", "cd_llm_url"):
             safe_config.pop(key, None)
     safe_config.pop("new_folder_name", None)
     safe_config["folder_id"] = folder_id
@@ -1132,7 +1141,7 @@ def _runner_config(request: RunRequest, pipeline: str) -> dict[str, Any]:
     config_data["api_key"] = _resolve_api_key(request.llm_url, request.api_key)
     config_data["pipeline"] = pipeline
     if pipeline == CURRENT_PIPELINE:
-        for role in ("ner", "ned"):
+        for role in ("cr", "cd"):
             url = _role_llm_url(request, role)
             if not getattr(request, f"{role}_model").strip() or url == _normalize_url(request.llm_url):
                 config_data[f"{role}_llm_url"], config_data[f"{role}_api_key"] = "", ""
@@ -1153,7 +1162,7 @@ def _normalize_url(url: str) -> str:
 def _uses_shared_key(request: RunRequest, pipeline: str) -> bool:
     """Whether any model of the run is called with the shared ScaDS.AI key:
     the main endpoint is ScaDS.AI and the user gave no key, or (with the
-    disambiguation pipeline) NER/NED run on ScaDS.AI next to another main
+    disambiguation pipeline) CR/CD run on ScaDS.AI next to another main
     endpoint. Embeddings, which always use the shared key, do not count."""
     main = _normalize_url(request.llm_url)
     if main == SCADS_ENDPOINT and not request.api_key.strip():
@@ -1162,7 +1171,7 @@ def _uses_shared_key(request: RunRequest, pipeline: str) -> bool:
         return False
     return any(
         getattr(request, f"{role}_model").strip() and _role_llm_url(request, role) == SCADS_ENDPOINT != main
-        for role in ("ner", "ned")
+        for role in ("cr", "cd")
     )
 
 
@@ -1243,7 +1252,7 @@ def _log_shared_key_limit(ctrl: RunController, remaining: int) -> None:
 
 
 def _role_llm_url(request: RunRequest, role: str) -> str:
-    """The normalized endpoint of the NER or NED model -- the elicitation
+    """The normalized endpoint of the CR or CD model -- the elicitation
     endpoint unless ScaDS.AI was picked; any other URL is refused, so the
     shared ScaDS key and the user's key only ever go to their own endpoint."""
     url = _normalize_url(getattr(request, f"{role}_llm_url") or request.llm_url)
@@ -1261,8 +1270,8 @@ def _emit_run_start_logs(
     ctrl.emit({"type": "log", "level": "info", "time": time.strftime("%H:%M:%S"), "message": f"Run {run_id} {action}."})
     if pipeline == CURRENT_PIPELINE:
         models = (
-            f"Models: elicitation {request.model}, NER {request.ner_model.strip() or request.model}, "
-            f"NED {request.ned_model.strip() or request.model}"
+            f"Models: elicitation {request.model}, CR {request.cr_model.strip() or request.model}, "
+            f"CD {request.cd_model.strip() or request.model}"
         )
     else:
         models = f"Model: {request.model} (classic pipeline)"
@@ -1405,7 +1414,7 @@ def _run_summary(run_dir: Path) -> dict[str, Any]:
     ctrl = controllers.get(run_id)
     active = ctrl is not None and ctrl.is_alive()
 
-    seed_entity = str(config.get("seed_entity", "")).strip()
+    seed_concept = str(config.get("seed_concept", "")).strip()
     topic = str(config.get("topic", "")).strip()
     processed_count: int | None = None
     queued_count: int | None = None
@@ -1432,25 +1441,25 @@ def _run_summary(run_dir: Path) -> dict[str, Any]:
         cached_queued = config.get("cached_queued_count")
         if isinstance(cached_processed, int) and isinstance(cached_queued, int):
             processed_count, queued_count = cached_processed, cached_queued
-        if not seed_entity:
-            seed_entity = str(config.get("cached_seed_entity", "")).strip()
+        if not seed_concept:
+            seed_concept = str(config.get("cached_seed_concept", "")).strip()
         if not topic:
             topic = str(config.get("cached_topic", "")).strip()
 
-    if db_counts is None and (processed_count is None or queued_count is None or not seed_entity or not topic):
+    if db_counts is None and (processed_count is None or queued_count is None or not seed_concept or not topic):
         queue_order, processed_list, depths, _used_event_log = load_subject_state(run_dir)
         if processed_count is None or queued_count is None:
             processed_count, queued_count = len(processed_list), len(queue_order)
-        if not seed_entity:
-            seed_entity = _infer_seed(depths, processed_list, queue_order, config)
+        if not seed_concept:
+            seed_concept = _infer_seed(depths, processed_list, queue_order, config)
         if not topic:
-            topic = _infer_topic(run_dir, seed_entity, depths, processed_list, queue_order, config)
+            topic = _infer_topic(run_dir, seed_concept, depths, processed_list, queue_order, config)
         if not active:
             _update_run_config(
                 run_dir,
                 cached_processed_count=processed_count,
                 cached_queued_count=queued_count,
-                cached_seed_entity=seed_entity,
+                cached_seed_concept=seed_concept,
                 cached_topic=topic,
             )
 
@@ -1492,14 +1501,14 @@ def _run_summary(run_dir: Path) -> dict[str, Any]:
         "run_id": run_id,
         "status": status,
         "topic": topic,
-        "seed_entity": seed_entity,
+        "seed_concept": seed_concept,
         "model": config.get("model", ""),
-        "ner_model": config.get("ner_model"),
-        "ned_model": config.get("ned_model"),
-        "ner_llm_url": config.get("ner_llm_url"),
-        "ned_llm_url": config.get("ned_llm_url"),
+        "cr_model": config.get("cr_model"),
+        "cd_model": config.get("cd_model"),
+        "cr_llm_url": config.get("cr_llm_url"),
+        "cd_llm_url": config.get("cd_llm_url"),
         "pipeline": pipeline,
-        "entities": db_counts.get("entities") if db_counts is not None else None,
+        "concepts": db_counts.get("concepts") if db_counts is not None else None,
         "folder_id": config.get("folder_id"),
         "started_at": config.get("started_at", ""),
         "ended_at": config.get("ended_at", ""),
@@ -1512,7 +1521,7 @@ def _run_summary(run_dir: Path) -> dict[str, Any]:
         "resumable": bool(queued_count) or bool(db_counts and db_counts.get("pending")),
         "triples": triples_count,
         "literals": literals_count,
-        "off_domain_entities": off_domain_count,
+        "off_domain_concepts": off_domain_count,
         "failed_subjects": failed_count,
         "html_pages": len(list(html_dir.glob("*.html"))) if html_dir.exists() else 0,
         "size_bytes": size_bytes,
@@ -1893,7 +1902,7 @@ def _zip_stream(directory: Path) -> Iterator[bytes]:
     (so extracting lands the contents at the zip's root, not nested inside a
     directory-name folder), and yields the archive in pieces as it is built:
     a download starts at once and memory use stays small, also for runs of a
-    gigabyte. A run's report is html/index.html, among thousands of entity
+    gigabyte. A run's report is html/index.html, among thousands of concept
     pages; REPORT.html at the root leads to it.
     """
     sink = _ZipSink()

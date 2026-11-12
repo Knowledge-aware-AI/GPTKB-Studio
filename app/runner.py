@@ -201,12 +201,12 @@ def apply_reasoning_settings(
 PROMPT_LANGUAGES: dict[str, dict[str, str]] = {
     "en": {
         "name": "English",
-        "intro": "I want to construct a knowledge graph on the topic of {topic}. Given a subject entity, return all facts that you know for the subject as a list of subject, predicate, object triples. The number of facts may be very high, between {popular_low} to {popular_high} or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like {rare_low} or {rare_high}.",
+        "intro": "I want to construct a knowledge graph on the topic of {topic}. Given a subject concept, return all facts that you know for the subject as a list of subject, predicate, object triples. The number of facts may be very high, between {popular_low} to {popular_high} or more, for very popular subjects. For less popular subjects, the number of facts can be very low, like {rare_low} or {rare_high}.",
         "important_header": "Important:",
         "rule_unknown": "If you don't know the subject, return an empty list.",
-        "rule_not_named_entity": "If the subject is not a named entity, return an empty list.",
+        "rule_concept": 'The subject can be a particular individual or a general concept.',
         "rule_off_topic": "If the subject does not belong to the topic of {topic}, return an empty list.",
-        "rule_instance_of": 'If the subject is a named entity, include at least one triple where predicate is "instanceOf".',
+        "rule_instance_of": 'Every concept should have at least one instanceOf or subClassOf triple. Use instanceOf for membership and subClassOf for a narrower-to-broader concept relationship.',
         "rule_not_wordy": "Do not get too wordy.",
         "rule_separate_objects": "Separate several objects into multiple triples with one object.",
         "rule_language": None,
@@ -221,9 +221,9 @@ PROMPT_LANGUAGES: dict[str, dict[str, str]] = {
         "intro": "Ich möchte einen Knowledge Graph zum Thema {topic} erstellen. Gegeben ein Subjekt, gib mir alle Fakten, die du über dieses Subjekt kennst, als eine Liste von Subjekt-Prädikat-Objekt-Tripeln zurück. Die Anzahl der Fakten kann sehr hoch sein, zwischen {popular_low} und {popular_high} oder mehr, für sehr populäre Subjekte. Bei weniger populären Subjekten kann die Anzahl der Fakten sehr gering sein, etwa {rare_low} oder {rare_high}.",
         "important_header": "Wichtig:",
         "rule_unknown": "Wenn du das Subjekt nicht kennst, gib eine leere Liste zurück.",
-        "rule_not_named_entity": "Wenn das Subjekt keine benannte Entität ist, gib eine leere Liste zurück.",
+        "rule_concept": 'Das Subjekt kann ein einzelnes Individuum oder ein allgemeines Konzept sein.',
         "rule_off_topic": "Wenn das Subjekt nicht zum Thema {topic} gehört, gib eine leere Liste zurück.",
-        "rule_instance_of": 'Wenn das Subjekt eine benannte Entität ist, füge mindestens ein Tripel hinzu, dessen Prädikat "InstanzVon" ist.',
+        "rule_instance_of": 'Jedes Konzept sollte mindestens ein instanceOf- oder subClassOf-Tripel haben. Verwende instanceOf für die Zugehörigkeit zu einer Klasse und subClassOf für Unterklassenbeziehungen.',
         "rule_not_wordy": "Sei nicht zu weitschweifig.",
         "rule_separate_objects": "Trenne mehrere Objekte in mehrere Tripel mit jeweils einem Objekt.",
         "rule_language": "Alle Tripel müssen auf Deutsch sein.",
@@ -238,9 +238,9 @@ PROMPT_LANGUAGES: dict[str, dict[str, str]] = {
         "intro": "Quiero construir un knowledge graph sobre el tema de {topic}. Dada una entidad sujeto, devuelve todos los hechos que conoces para el sujeto como una lista de tripletas (sujeto, predicado, objeto). El número de hechos puede ser muy alto, entre {popular_low} y {popular_high} o más, para sujetos muy populares. Para sujetos menos populares, el número de hechos puede ser muy bajo, como {rare_low} o {rare_high}.",
         "important_header": "Importante:",
         "rule_unknown": "Si no conoces el sujeto, devuelve una lista vacía.",
-        "rule_not_named_entity": "Si el sujeto no es una entidad nombrada, devuelve una lista vacía.",
+        "rule_concept": 'El sujeto puede ser un individuo particular o un concepto general.',
         "rule_off_topic": "Si el sujeto no pertenece al tema de {topic}, devuelve una lista vacía.",
-        "rule_instance_of": 'Si el sujeto es una entidad nombrada, incluye al menos un triple cuyo predicado sea "instanciaDe".',
+        "rule_instance_of": 'Cada concepto debe tener al menos una tripleta instanceOf o subClassOf. Usa instanceOf para pertenencia a una clase y subClassOf para relaciones entre subclases y superclases.',
         "rule_not_wordy": "No te extiendas demasiado.",
         "rule_separate_objects": "Separa varios objetos en múltiples triples con un objeto cada uno.",
         "rule_language": "Todos los triples deben estar en español.",
@@ -255,9 +255,9 @@ PROMPT_LANGUAGES: dict[str, dict[str, str]] = {
         "intro": "Je souhaite construire un graphe de connaissances sur le sujet de {topic}. Étant donné une entité sujet, retourne tous les faits que tu connais à propos de ce sujet sous forme de triplets (sujet, prédicat, objet). Le nombre de faits peut être très élevé, entre {popular_low} et {popular_high} ou plus, pour des sujets très populaires. Pour des sujets moins populaires, le nombre de faits peut être très faible, comme {rare_low} ou {rare_high}.",
         "important_header": "Important :",
         "rule_unknown": "Si tu ne connais pas le sujet, retourne une liste vide.",
-        "rule_not_named_entity": "Si le sujet n'est pas une entité nommée, retourne une liste vide.",
+        "rule_concept": 'Le sujet peut être un individu particulier ou un concept général.',
         "rule_off_topic": "Si le sujet ne relève pas du thème de {topic}, retourne une liste vide.",
-        "rule_instance_of": 'Si le sujet est une entité nommée, inclus au moins un triplet où le prédicat est "instanceDe".',
+        "rule_instance_of": 'Chaque concept doit avoir au moins un triplet instanceOf ou subClassOf. Utilise instanceOf pour une appartenance à une classe et subClassOf pour une relation de sous-classe.',
         "rule_not_wordy": "Ne sois pas trop verbeux.",
         "rule_separate_objects": "Sépare plusieurs objets en plusieurs triplets avec un seul objet chacun.",
         "rule_language": "Tous les triplets doivent être en français.",
@@ -272,9 +272,9 @@ PROMPT_LANGUAGES: dict[str, dict[str, str]] = {
         "intro": "Voglio costruire un knowledge graph sul tema di {topic}. Data un'entità soggetto, fornisci tutti i fatti che conosci per il soggetto in forma di lista di triple (soggetto, predicato, oggetto). Il numero di fatti può essere molto alto, da {popular_low} a {popular_high} o più, per soggetti molto popolari. Per i soggetti meno popolari, il numero di fatti può essere molto basso, come {rare_low} o {rare_high}.",
         "important_header": "Importante:",
         "rule_unknown": "Se non conosci il soggetto, fornisci una lista vuota.",
-        "rule_not_named_entity": "Se il soggetto non è una named entity, fornisci una lista vuota.",
+        "rule_concept": 'Il soggetto può essere un individuo particolare o un concetto generale.',
         "rule_off_topic": "Se il soggetto non appartiene al tema di {topic}, fornisci una lista vuota.",
-        "rule_instance_of": 'Se il soggetto è una named entity, includi almeno una tripla dove il predicato è "istanzaDi".',
+        "rule_instance_of": 'Ogni concetto dovrebbe avere almeno una tripla instanceOf o subClassOf. Usa instanceOf per appartenenza a una classe e subClassOf per relazioni di sottoclasse.',
         "rule_not_wordy": "Non essere troppo prolisso.",
         "rule_separate_objects": "Separa più oggetti in più triple con un oggetto ciascuna.",
         "rule_language": "Tutte le triple devono essere in lingua italiana.",
@@ -289,9 +289,9 @@ PROMPT_LANGUAGES: dict[str, dict[str, str]] = {
         "intro": "Chcę zbudować knowledge graph na temat {topic}. Dla danej encji będącej podmiotem, podaj wszystkie fakty, które znasz o tym podmiocie w formie listy trójek (podmiot, predykat, obiekt). Liczba faktów może być bardzo duża, od {popular_low} do {popular_high} lub więcej, dla bardzo popularnych podmiotów. Dla mniej popularnych podmiotów liczba faktów może być bardzo mała, na przykład {rare_low} lub {rare_high}.",
         "important_header": "Ważne:",
         "rule_unknown": "Jeśli nie znasz podmiotu, podaj pustą listę.",
-        "rule_not_named_entity": "Jeśli podmiot nie jest nazwą własną, podaj pustą listę.",
+        "rule_concept": 'Podmiot może być konkretnym indywiduum lub pojęciem ogólnym.',
         "rule_off_topic": "Jeśli podmiot nie należy do tematu {topic}, podaj pustą listę.",
-        "rule_instance_of": 'Jeśli podmiot jest nazwą własną, uwzględnij przynajmniej jedną trójkę, w której predykatem jest "instancja".',
+        "rule_instance_of": 'Każde pojęcie powinno mieć co najmniej jedną trójkę instanceOf lub subClassOf. Używaj instanceOf do przynależności do klasy, a subClassOf do relacji podklasy.',
         "rule_not_wordy": "Nie bądź zbyt rozwlekły.",
         "rule_separate_objects": "Oddzielaj wiele obiektów w osobnych trójkach z jednym obiektem każda.",
         "rule_language": "Wszystkie trójki muszą być w języku polskim.",
@@ -306,9 +306,9 @@ PROMPT_LANGUAGES: dict[str, dict[str, str]] = {
         "intro": "Quero construir um knowledge graph sobre o tema de {topic}. Dada uma entidade sujeito, forneça todos os fatos que você conhece sobre o sujeito em forma de lista de triplas (sujeito, predicado, objeto). O número de fatos pode ser muito alto, de {popular_low} a {popular_high} ou mais, para sujeitos muito populares. Para os sujeitos menos populares, o número de fatos pode ser muito baixo, como {rare_low} ou {rare_high}.",
         "important_header": "Importante:",
         "rule_unknown": "Se você não conhece o sujeito, forneça uma lista vazia.",
-        "rule_not_named_entity": "Se o sujeito não é uma named entity, forneça uma lista vazia.",
+        "rule_concept": 'O sujeito pode ser um indivíduo particular ou um conceito geral.',
         "rule_off_topic": "Se o sujeito não pertence ao tema de {topic}, forneça uma lista vazia.",
-        "rule_instance_of": 'Se o sujeito é uma named entity, inclua pelo menos uma tripla onde o predicado seja "instânciaDe".',
+        "rule_instance_of": 'Cada conceito deve ter pelo menos uma tripla instanceOf ou subClassOf. Usa instanceOf para pertença a uma classe e subClassOf para relações de subclasse.',
         "rule_not_wordy": "Não seja demasiado prolixo.",
         "rule_separate_objects": "Separe vários objetos em várias triplas com um objeto cada.",
         "rule_language": "Todas as triplas devem estar em língua portuguesa.",
@@ -323,9 +323,9 @@ PROMPT_LANGUAGES: dict[str, dict[str, str]] = {
         "intro": "Я хочу построить knowledge graph по теме {topic}. Задав субъект, верни все известные тебе факты о нём в виде списка троек (субъект, предикат, объект). Количество фактов может быть очень большим, от {popular_low} до {popular_high} и более, для очень популярных субъектов. Для менее популярных субъектов количество фактов может быть очень низким, например, {rare_low} или {rare_high}.",
         "important_header": "Важно:",
         "rule_unknown": "Если ты не знаешь субъект, верни пустой список.",
-        "rule_not_named_entity": "Если субъект не является именованной сущностью, верни пустой список.",
+        "rule_concept": 'Субъект может быть отдельным индивидом или общим понятием.',
         "rule_off_topic": "Если субъект не относится к теме {topic}, верни пустой список.",
-        "rule_instance_of": 'Если субъект является именованной сущностью, включи хотя бы одну тройку, предикат которой "ЧастныйСлучайДля".',
+        "rule_instance_of": 'Каждое понятие должно иметь хотя бы одну тройку instanceOf или subClassOf. Используй instanceOf для принадлежности к классу и subClassOf для отношения подкласса.',
         "rule_not_wordy": "Не будь слишком многословным.",
         "rule_separate_objects": "Разделяй несколько объектов на несколько троек с одним объектом каждая.",
         "rule_language": "Все тройки должны быть на русском языке.",
@@ -340,9 +340,9 @@ PROMPT_LANGUAGES: dict[str, dict[str, str]] = {
         "intro": "Jag vill bygga en knowledge graph om ämnet {topic}. Givet ett subjekt som entitet, ge alla fakta du känner till om subjektet i form av en lista med tripler (subjekt, predikat, objekt). Antalet fakta kan vara mycket högt, från {popular_low} till {popular_high} eller fler, för mycket populära subjekt. För mindre populära subjekt kan antalet fakta vara mycket lågt, som {rare_low} eller {rare_high}.",
         "important_header": "Viktigt:",
         "rule_unknown": "Om du inte känner till subjektet, ge en tom lista.",
-        "rule_not_named_entity": "Om subjektet inte är en namngiven entitet, ge en tom lista.",
+        "rule_concept": 'Subjektet kan vara en enskild individ eller ett allmänt begrepp.',
         "rule_off_topic": "Om subjektet inte tillhör ämnet {topic}, ge en tom lista.",
-        "rule_instance_of": 'Om subjektet är en namngiven entitet, inkludera minst en trippel där predikatet är "ärInstansAv".',
+        "rule_instance_of": 'Varje begrepp bör ha minst en instanceOf- eller subClassOf-trippel. Använd instanceOf för klasstillhörighet och subClassOf för underklassrelationer.',
         "rule_not_wordy": "Var inte alltför långrandig.",
         "rule_separate_objects": "Separera flera objekt i flera tripler med ett objekt vardera.",
         "rule_language": "Alla tripler ska vara på svenska.",
@@ -357,9 +357,9 @@ PROMPT_LANGUAGES: dict[str, dict[str, str]] = {
         "intro": "{topic} konusu üzerine bir knowledge graph oluşturmak istiyorum. Bir konu (özne) varlığı verildiğinde, bu konu hakkında bildiğin tüm gerçekleri (özne, yüklem, nesne) üçlüleri listesi olarak döndür. Gerçeklerin sayısı çok popüler konular için {popular_low} ile {popular_high} veya daha fazla olabilir. Daha az popüler konular için gerçek sayısı {rare_low} veya {rare_high} kadar çok düşük olabilir.",
         "important_header": "Önemli:",
         "rule_unknown": "Konuyu bilmiyorsan, boş liste döndür.",
-        "rule_not_named_entity": "Konu adlandırılmış bir varlık değilse, boş liste döndür.",
+        "rule_concept": 'Özne belirli bir birey veya genel bir kavram olabilir.',
         "rule_off_topic": "Konu {topic} temasına ait değilse, boş liste döndür.",
-        "rule_instance_of": 'Konu adlandırılmış bir varlık ise, yüklemi "nedir" olan en az bir üçlü ekle.',
+        "rule_instance_of": 'Her kavram en az bir instanceOf veya subClassOf üçlüsüne sahip olmalıdır. Sınıf üyeliği için instanceOf, alt sınıf ilişkisi için subClassOf kullan.',
         "rule_not_wordy": "Çok ayrıntıya girme.",
         "rule_separate_objects": "Birden fazla nesneyi, her biri tek nesne içeren birden fazla üçlüye ayır.",
         "rule_language": "Tüm üçlüler Türkçe olmalıdır.",
@@ -374,9 +374,9 @@ PROMPT_LANGUAGES: dict[str, dict[str, str]] = {
         "intro": "Chci vytvořit knowledge graph na téma {topic}. Pro daný podmět (entitu) uveď všechna fakta, která o tomto podmětu znáš, ve formě seznamu trojic podmět, predikát, objekt. Počet faktů může být velmi vysoký, mezi {popular_low} až {popular_high} nebo více, pro velmi populární podměty. U méně populárních podmětů může být počet faktů velmi nízký, například {rare_low} nebo {rare_high}.",
         "important_header": "Důležité:",
         "rule_unknown": "Pokud podmět neznáš, vrať prázdný seznam.",
-        "rule_not_named_entity": "Pokud podmět není vlastní jméno (named entity), vrať prázdný seznam.",
+        "rule_concept": 'Subjektem může být konkrétní jedinec nebo obecný pojem.',
         "rule_off_topic": "Pokud podmět nepatří k tématu {topic}, vrať prázdný seznam.",
-        "rule_instance_of": 'Pokud je podmět vlastní jméno (named entity), zahrň alespoň jednu trojici, kde je predikátem "instance".',
+        "rule_instance_of": 'Každý pojem by měl mít alespoň jednu trojici instanceOf nebo subClassOf. Použij instanceOf pro příslušnost ke třídě a subClassOf pro vztah podtřídy.',
         "rule_not_wordy": "Nebuď příliš zdlouhavý.",
         "rule_separate_objects": "Rozděl více objektů do více trojic, každou s jedním objektem.",
         "rule_language": "Všechny trojice musí být v češtině.",
@@ -400,7 +400,7 @@ def build_elicitation_prompt_body(
 
     The subject line is kept separate (see append_subject_line) so a
     user-edited prompt template can still have the correct subject
-    substituted in for every different entity crawled during a run.
+    substituted in for every different concept crawled during a run.
     """
     lang = PROMPT_LANGUAGES.get(language, PROMPT_LANGUAGES["en"])
 
@@ -415,7 +415,7 @@ def build_elicitation_prompt_body(
 
     rules = [
         lang["rule_unknown"],
-        lang["rule_not_named_entity"],
+        lang["rule_concept"],
         lang["rule_off_topic"].format(topic=topic),
         lang["rule_instance_of"],
         lang["rule_not_wordy"],
@@ -461,13 +461,13 @@ class KBCConfig:
     api_key: str
     model: str
     topic: str
-    seed_entity: str
+    seed_concept: str
     language: str = "en"
     schema_mode: str = "open"
     schema_text: str = ""
     facts_multiplier: float = 1.0
     prompt_template: str = ""
-    max_entities: int | None = None
+    max_concepts: int | None = None
     max_bfs_depth: int | None = None
     max_runtime_seconds: int | None = None
     max_cost: float | None = None
@@ -537,33 +537,33 @@ def _format_duration(seconds: float) -> str:
 
 # Third-party assets copied into each run's html/ directory so the generated
 # collection stays a self-contained, offline-viewable folder (same reason
-# entity pages link each other with plain relative hrefs instead of absolute
+# concept pages link each other with plain relative hrefs instead of absolute
 # server paths).
 _VENDOR_DIR = Path(__file__).resolve().parent / "vendor"
 
-# Above this many entities, the homepage graph keeps only the most-connected
+# Above this many concepts, the homepage graph keeps only the most-connected
 # ones -- vis-network's physics layout gets sluggish in-browser well before a
-# KB's full entity count would (large runs can reach thousands of entities).
+# KB's full concept count would (large runs can reach thousands of concepts).
 _MAX_GRAPH_NODES = 400
 
-# Once a run is past the node cap, which entities make the "most connected"
+# Once a run is past the node cap, which concepts make the "most connected"
 # cut is recomputed only this often (in calls to _compute_graph_data, i.e.
-# roughly every this many entities processed) rather than on every single
-# call -- Counter.most_common() over the full entity/object name set is the
+# roughly every this many concepts processed) rather than on every single
+# call -- Counter.most_common() over the full concept/object name set is the
 # one part of the graph computation that's still O(names seen so far), and
-# that ranking is far more stable than the entity count is large, so most
+# that ranking is far more stable than the concept count is large, so most
 # calls in between reuse it. Only which nodes are shown can lag by up to this
-# many entities; the edges among whichever nodes are currently selected are
+# many concepts; the edges among whichever nodes are currently selected are
 # still updated on every single call (see _compute_graph_data).
 _GRAPH_SELECTION_REFRESH_INTERVAL = 200
 
-# The Entity Index and All Elicited Triples sections show the first this many
+# The Concept Index and All Elicited Triples sections show the first this many
 # (by discovery order), frozen once that many are reached, rather than every
-# entity/triple ever collected -- summary stats (counts, charts) still cover
+# concept/triple ever collected -- summary stats (counts, charts) still cover
 # everything regardless of this cap; only these two browsable lists are
 # capped, on the assumption nobody scrolls through tens of thousands of rows
 # by hand anyway. The full data is always in knowledgeBase.db.
-_MAX_DISPLAYED_ENTITIES = 3000
+_MAX_DISPLAYED_CONCEPTS = 3000
 _MAX_DISPLAYED_TRIPLES = 5000
 
 
@@ -607,7 +607,7 @@ class LocalKBCRunner:
         self.subject_events_path = run_dir / "subjectEvents.jsonl"
         self.triples_output_path = run_dir / "triples.jsonl"
         self.literals_path = run_dir / "literals.jsonl"
-        self.off_domain_entities_path = run_dir / "offDomainEntities.jsonl"
+        self.off_domain_concepts_path = run_dir / "offDomainEntities.jsonl"
         self.failed_subjects_path = run_dir / "failedSubjects.jsonl"
         self.html_dir = run_dir / "html"
         self.state_lock = threading.RLock()
@@ -624,7 +624,7 @@ class LocalKBCRunner:
         # domain phrase/failure is recorded) rather than recomputed from the
         # full triple set on every homepage regeneration -- see _compute_stats
         # and _compute_graph_data, which used to rebuild these from scratch
-        # on every single entity processed.
+        # on every single concept processed.
         self.predicate_counts: Counter[str] = Counter()
         self.class_counts: Counter[str] = Counter()
         self.degree_counts: Counter[str] = Counter()
@@ -637,7 +637,7 @@ class LocalKBCRunner:
         self.off_domain_count = 0
         self.failed_subjects_count = 0
         self.failure_records: list[dict[str, Any]] = []
-        self._frozen_entity_links_html: str | None = None
+        self._frozen_concept_links_html: str | None = None
         self._frozen_triples_json: str | None = None
         # See _compute_graph_data: as long as the top-connected node
         # selection hasn't changed since the last call, only triples added
@@ -650,17 +650,17 @@ class LocalKBCRunner:
         # See _write_sqlite_export: a single connection kept open for the
         # run's lifetime, written to incrementally (only rows new since the
         # last call), rather than the whole database being rebuilt from
-        # scratch on every entity -- the one part of this class where the
+        # scratch on every concept -- the one part of this class where the
         # full data (uncapped, unlike the HTML report) genuinely has to be
         # persisted in full, so its write cost has to stay proportional to
         # what's new, not to everything collected so far.
         self._db_connection: sqlite3.Connection | None = None
         self._db_triples_scanned_upto = 0
-        self._db_entities_scanned_upto = 0
+        self._db_concepts_scanned_upto = 0
         self._db_literals_scanned_upto = 0
         self._db_off_domain_scanned_upto = 0
         self._db_failures_scanned_upto = 0
-        self._db_pending_entity_updates: list[str] = []
+        self._db_pending_concept_updates: list[str] = []
         self.active_workers = 0
         self.started_at = 0.0
         self.total_cost_usd = 0.0
@@ -777,9 +777,9 @@ class LocalKBCRunner:
                 if self.stop_event.is_set():
                     self._cancel_subject(subject)
                     return
-                self._write_entity_html(subject, new_subjects)
+                self._write_concept_html(subject, new_subjects)
                 for target in refresh_targets:
-                    self._write_entity_html(target)
+                    self._write_concept_html(target)
                 self._finish_subject(subject, new_subjects)
                 self._log(
                     f"Processed {subject}: stored {stored_count} triples, queued {len(new_subjects)} new objects."
@@ -817,7 +817,7 @@ class LocalKBCRunner:
         with self.queue_condition:
             self.processed_subjects.add(subject)
             self._log_subject_event("finish", subject)
-            self._db_pending_entity_updates.append(subject)
+            self._db_pending_concept_updates.append(subject)
             for new_subject in new_subjects:
                 if new_subject in self.processed_subjects or new_subject in self.queued_subjects:
                     continue
@@ -876,7 +876,7 @@ class LocalKBCRunner:
             # _call_llm already retried this request several times with
             # backoff before giving up (see _call_llm) -- a deliberate Stop
             # surfaces here too (it's the same exception path), but that's
-            # not a failed entity, so it's excluded from the failure log and
+            # not a failed concept, so it's excluded from the failure log and
             # the subject gets re-queued by _worker's own stop check instead
             # of being abandoned.
             if isinstance(exc, ContextWindowExceeded):
@@ -932,7 +932,7 @@ class LocalKBCRunner:
             if not self.rate_limiter.acquire(self.stop_event):
                 raise RuntimeError("Stopped while waiting for the LLM rate limiter.")
             try:
-                task = {"elicitation": "Elicitation", "ner": "NER"}.get(role, role)
+                task = {"elicitation": "Elicitation", "cr": "CR"}.get(role, role)
                 with self.heartbeat.request(task, self.config.model, self.config.request_timeout_seconds):
                     response = self.client.chat.completions.create(**request_args)
                 self._record_usage_cost(response)
@@ -1039,8 +1039,8 @@ class LocalKBCRunner:
                         self.literal_texts.append(obj)
                         self.literals_count += 1
                     continue
-                if category == "off_domain_entity":
-                    self._append_jsonl(self.off_domain_entities_path, {"text": obj})
+                if category == "off_domain_concept":
+                    self._append_jsonl(self.off_domain_concepts_path, {"text": obj})
                     with self.state_lock:
                         self.off_domain_texts.append(obj)
                         self.off_domain_count += 1
@@ -1057,13 +1057,13 @@ class LocalKBCRunner:
         response = self._prompt_llm(
             f"I want you to classify object phrases from a knowledge graph about {self.config.topic}.\n\n"
             "Classify each phrase into exactly one of these categories:\n"
-            '- "domain_entity": a named entity that is relevant to the topic and should be expanded as a future subject.\n'
-            '- "off_domain_entity": a named entity, but not relevant to the topic.\n'
-            '- "literal": not a named entity, such as a date, number, URL, title, common noun, description, or verbose phrase.\n\n'
-            'Return only JSON in this exact shape: {"results": [{"phrase": "...", "category": "domain_entity|off_domain_entity|literal"}]}.\n'
+            '- "domain_concept": an identifiable concept that is relevant to the topic and should be expanded as a future subject.\n'
+            '- "off_domain_concept": a concept, but not relevant to the topic.\n'
+            '- "literal": a literal value such as a date, number, measurement, URL, or free-form description that does not denote an identifiable concept.\n\n'
+            'Return only JSON in this exact shape: {"results": [{"phrase": "...", "category": "domain_concept|off_domain_concept|literal"}]}.\n'
             "Use the exact input phrase strings in the phrase field.\n\n"
             f"Phrases: {json.dumps(phrases, ensure_ascii=False)}",
-            role="ner",
+            role="cr",
         )
         return self._parse_object_classifications(response, phrases)
 
@@ -1111,17 +1111,17 @@ class LocalKBCRunner:
     def _normalize_object_category(self, category: str) -> str:
         category = category.strip().lower()
         aliases = {
-            "domain-relevant ne": "domain_entity",
-            "domain relevant ne": "domain_entity",
-            "domain-relevant named entity": "domain_entity",
-            "domain relevant named entity": "domain_entity",
-            "named entity but not domain-relevant": "off_domain_entity",
-            "named entity but not domain relevant": "off_domain_entity",
-            "off-domain named entity": "off_domain_entity",
-            "off domain named entity": "off_domain_entity",
+            "domain-relevant ne": "domain_concept",
+            "domain relevant ne": "domain_concept",
+            "domain-relevant concept": "domain_concept",
+            "domain relevant concept": "domain_concept",
+            "concept but not domain-relevant": "off_domain_concept",
+            "concept but not domain relevant": "off_domain_concept",
+            "off-domain concept": "off_domain_concept",
+            "off domain concept": "off_domain_concept",
         }
         category = aliases.get(category, category)
-        if category not in {"domain_entity", "off_domain_entity", "literal"}:
+        if category not in {"domain_concept", "off_domain_concept", "literal"}:
             self._log(f"Unknown object classification '{category}', treating as literal.", level="warning")
             return "literal"
         return category
@@ -1152,7 +1152,7 @@ class LocalKBCRunner:
                         refresh_targets.add(o)
         return len(unique_triples), sorted(refresh_targets)
 
-    def _write_entity_html(self, subject: str, extra_linkable: list[str] | None = None) -> None:
+    def _write_concept_html(self, subject: str, extra_linkable: list[str] | None = None) -> None:
         with self.state_lock:
             outgoing = list(self.triples_by_subject.get(subject, []))
             incoming = list(self.triples_by_object.get(subject, []))
@@ -1185,21 +1185,21 @@ class LocalKBCRunner:
         if not incoming_rows:
             incoming_rows.append('<tr><td colspan="3">No incoming triples found yet.</td></tr>')
 
-        html = self._entity_html_document(subject, "\n".join(outgoing_rows), "\n".join(incoming_rows))
+        html = self._concept_html_document(subject, "\n".join(outgoing_rows), "\n".join(incoming_rows))
         with self.state_lock:
             self.html_dir.mkdir(parents=True, exist_ok=True)
-            path = self.html_dir / self._entity_filename(subject)
+            path = self.html_dir / self._concept_filename(subject)
             path.write_text(html, encoding="utf-8")
             self._write_sqlite_export()
             self._write_html_index()
 
     def _format_html_object(self, value: str, linkable_objects: set[str]) -> str:
         if value in linkable_objects:
-            filename = self._entity_filename(value)
+            filename = self._concept_filename(value)
             return f'<a href="{escape(quote(filename))}">{escape(value)}</a>'
         return escape(value)
 
-    def _entity_html_document(self, subject: str, outgoing_rows: str, incoming_rows: str) -> str:
+    def _concept_html_document(self, subject: str, outgoing_rows: str, incoming_rows: str) -> str:
         title = escape(subject)
         return f"""<!DOCTYPE html>
 <html lang="en">
@@ -1292,25 +1292,25 @@ class LocalKBCRunner:
         _store_triples, _collect_new_subjects, _record_failure), not
         recomputed from the full triple set on every call -- this used to be
         a handful of full O(n) passes over every triple ever collected,
-        repeated on every single entity processed over the life of a run.
+        repeated on every single concept processed over the life of a run.
         self.depths is a superset of processed_subjects/queued_subjects (an
-        entity is always given a depth at the moment it's discovered, before
-        it's ever queued), so its length alone is the true entity count.
+        concept is always given a depth at the moment it's discovered, before
+        it's ever queued), so its length alone is the true concept count.
         """
-        top_entities = [
+        top_concepts = [
             (name, self.out_degree.get(name, 0), self.in_degree.get(name, 0), total)
             for name, total in self.degree_counts.most_common(10)
         ]
 
         return {
-            "total_entities": len(self.depths),
+            "total_concepts": len(self.depths),
             "total_predicates": len(self.predicate_counts),
             "total_literals": self.literals_count,
             "total_triples": len(self.triples_in_order),
             "unique_classes": len(self.class_counts),
             "top_classes": self.class_counts.most_common(10),
             "top_predicates": self.predicate_counts.most_common(10),
-            "top_entities": top_entities,
+            "top_concepts": top_concepts,
             "depth_counts": sorted(self.depth_counts.items()),
             "max_depth": max(self.depth_counts) if self.depth_counts else 0,
             "total_off_domain": self.off_domain_count,
@@ -1319,25 +1319,25 @@ class LocalKBCRunner:
             "queued_count": len(self.queued_subjects),
         }
 
-    def _compute_graph_data(self, entity_count: int) -> dict[str, Any]:
+    def _compute_graph_data(self, concept_count: int) -> dict[str, Any]:
         """Builds a capped node/edge graph for the homepage's network visualization.
 
         Callers must already hold self.state_lock (same convention as
         _compute_stats). Reuses the same incrementally-maintained
-        self.degree_counts as _compute_stats's Central Entities table instead
+        self.degree_counts as _compute_stats's Central Concepts table instead
         of rebuilding degree counters from the full triple set again -- and,
         since a large run is always past the node cap, node selection comes
-        from Counter.most_common (a bounded operation over distinct entities,
-        not one that scans every triple) rather than sorting every entity by
-        degree. Takes a count rather than a set of entities so a huge run
+        from Counter.most_common (a bounded operation over distinct concepts,
+        not one that scans every triple) rather than sorting every concept by
+        degree. Takes a count rather than a set of concepts so a huge run
         never has to materialize a set of everything just to measure it.
         """
-        truncated = entity_count > _MAX_GRAPH_NODES
+        truncated = concept_count > _MAX_GRAPH_NODES
         if truncated:
             self._graph_selection_refresh_countdown -= 1
             if self._graph_selection_refresh_countdown <= 0 or not self._graph_selected_cache:
                 top_nodes = {name for name, _ in self.degree_counts.most_common(_MAX_GRAPH_NODES)}
-                selected = frozenset(top_nodes | {self.config.seed_entity})
+                selected = frozenset(top_nodes | {self.config.seed_concept})
                 self._graph_selection_refresh_countdown = _GRAPH_SELECTION_REFRESH_INTERVAL
             else:
                 selected = self._graph_selected_cache
@@ -1346,10 +1346,10 @@ class LocalKBCRunner:
 
         nodes = []
         for name in selected:
-            is_seed = name == self.config.seed_entity
+            is_seed = name == self.config.seed_concept
             depth = self.depths.get(name, 0)
             node_degree = self.degree_counts.get(name, 0)
-            detail = "seed entity" if is_seed else f"depth {depth}, {node_degree} connections"
+            detail = "seed concept" if is_seed else f"depth {depth}, {node_degree} connections"
             nodes.append(
                 {
                     "id": name,
@@ -1364,7 +1364,7 @@ class LocalKBCRunner:
         # Rescanning every triple ever collected to find the edges among a
         # small selected set, on every single regeneration, is the one part
         # of this function real 100k+-scale measurement showed still costs
-        # real time (tens of ms per call, times every entity processed, adds
+        # real time (tens of ms per call, times every concept processed, adds
         # up to hours over a big run). Since node selection is far more
         # stable than the triple set is large (the top-N-by-degree set
         # rarely reshuffles once a graph has any size), only a selection
@@ -1391,8 +1391,8 @@ class LocalKBCRunner:
             "nodes": nodes,
             "edges": edges,
             "truncated": truncated,
-            "total_entities": entity_count,
-            "shown_entities": len(selected),
+            "total_concepts": concept_count,
+            "shown_concepts": len(selected),
         }
 
     def _ensure_vendor_assets(self) -> None:
@@ -1499,14 +1499,14 @@ class LocalKBCRunner:
         self._ensure_vendor_assets()
         run_id = self.run_dir.name
         # Discovery order (dicts preserve insertion order), not alphabetical --
-        # entity_order[:_MAX_DISPLAYED_ENTITIES] is what actually renders in
-        # the Entity Index below, and self.depths is a superset of
+        # concept_order[:_MAX_DISPLAYED_CONCEPTS] is what actually renders in
+        # the Concept Index below, and self.depths is a superset of
         # processed_subjects/queued_subjects (see _compute_stats), so this is
-        # every entity ever discovered without needing to union three sets.
-        entity_order = list(self.depths.keys())
-        total_entity_count = len(entity_order)
+        # every concept ever discovered without needing to union three sets.
+        concept_order = list(self.depths.keys())
+        total_concept_count = len(concept_order)
         topic = escape(self.config.topic)
-        seed = escape(self.config.seed_entity)
+        seed = escape(self.config.seed_concept)
         model = escape(self.config.model)
         language = PROMPT_LANGUAGES.get(self.config.language, {}).get("name", self.config.language)
         generated_at = time.strftime("%Y-%m-%d %H:%M")
@@ -1514,7 +1514,7 @@ class LocalKBCRunner:
         runtime = _format_duration(elapsed_seconds)
         # Subjects actually crawled (their own elicitation call completed) per
         # minute -- the crawler's throughput. This is not the same as the
-        # "Entities" count above, which also includes every entity merely
+        # "Concepts" count above, which also includes every concept merely
         # *discovered* as an object of another subject's triples and still
         # sitting in the queue, so it's typically much larger than
         # (subjects_per_minute * elapsed minutes).
@@ -1533,8 +1533,8 @@ class LocalKBCRunner:
         schema_mode_label = schema_mode_labels.get(self.config.schema_mode, self.config.schema_mode)
 
         stopping_criteria = []
-        if self.config.max_entities:
-            stopping_criteria.append(f"Max objects: {self.config.max_entities:,}")
+        if self.config.max_concepts:
+            stopping_criteria.append(f"Max objects: {self.config.max_concepts:,}")
         if self.config.max_bfs_depth is not None:
             stopping_criteria.append(f"Max BFS depth: {self.config.max_bfs_depth}")
         if self.config.max_runtime_seconds:
@@ -1566,7 +1566,7 @@ class LocalKBCRunner:
             ("Parallel subjects", str(self.config.nthreads)),
             ("Desired triples", triples_level),
             ("Max requests/min", f"{self.config.max_requests_per_minute:,}" if self.config.max_requests_per_minute else "Unlimited"),
-            ("Processed Entities / Minute", subjects_per_minute),
+            ("Processed Concepts / Minute", subjects_per_minute),
             ("Schema", schema_mode_label),
             ("Reasoning", reasoning_display),
             ("Stopping criteria", stopping_criteria_display),
@@ -1596,20 +1596,20 @@ class LocalKBCRunner:
 </section>"""
 
         stats = self._compute_stats()
-        graph_data = self._compute_graph_data(total_entity_count)
+        graph_data = self._compute_graph_data(total_concept_count)
         graph_nodes_json = json.dumps(graph_data["nodes"], ensure_ascii=False).replace("</", "<\\/")
         graph_edges_json = json.dumps(graph_data["edges"], ensure_ascii=False).replace("</", "<\\/")
         graph_note = (
-            f'<p class="graph-note">Showing the {graph_data["shown_entities"]:,} most-connected of '
-            f'{graph_data["total_entities"]:,} entities to keep the visualization responsive.</p>'
+            f'<p class="graph-note">Showing the {graph_data["shown_concepts"]:,} most-connected of '
+            f'{graph_data["total_concepts"]:,} concepts to keep the visualization responsive.</p>'
             if graph_data["truncated"]
             else ""
         )
 
         remaining_note = (
-            f"{stats['queued_count']:,} entities still queued for processing."
+            f"{stats['queued_count']:,} concepts still queued for processing."
             if stats["queued_count"]
-            else "All discovered entities have been processed."
+            else "All discovered concepts have been processed."
         )
         quality_bits = []
         if stats["total_off_domain"]:
@@ -1620,7 +1620,7 @@ class LocalKBCRunner:
 
         metrics = [
             ("Triples", stats["total_triples"]),
-            ("Entities", stats["total_entities"]),
+            ("Concepts", stats["total_concepts"]),
             ("Predicates", stats["total_predicates"]),
             ("Literals", stats["total_literals"]),
             ("Unique classes", stats["unique_classes"]),
@@ -1641,16 +1641,16 @@ class LocalKBCRunner:
         )
         depth_chart = self._bar_chart_svg(
             "BFS Depth Reached",
-            "How many entities were discovered at each hop from the seed.",
+            "How many concepts were discovered at each hop from the seed.",
             [(f"Depth {depth}", count) for depth, count in stats["depth_counts"]],
         )
         row_classes = self._panel_row([top_classes_chart])
         row_depth = self._panel_row([depth_chart])
 
         node_mix_donut = self._donut_svg(
-            "Entities vs Literals",
+            "Concepts vs Literals",
             [
-                ("Entities", stats["total_entities"], "#2563eb"),
+                ("Concepts", stats["total_concepts"], "#2563eb"),
                 ("Literals", stats["total_literals"], "#0f766e"),
             ],
             "nodes",
@@ -1689,43 +1689,43 @@ class LocalKBCRunner:
 </details>
 </section>"""
 
-        central_entities_rows = "\n".join(
+        central_concepts_rows = "\n".join(
             "<tr>"
-            f'<td><a href="{escape(quote(self._entity_filename(name)))}">{escape(name)}</a></td>'
+            f'<td><a href="{escape(quote(self._concept_filename(name)))}">{escape(name)}</a></td>'
             f"<td>{out_degree:,}</td><td>{in_degree:,}</td><td>{total_degree:,}</td>"
             "</tr>"
-            for name, out_degree, in_degree, total_degree in stats["top_entities"]
+            for name, out_degree, in_degree, total_degree in stats["top_concepts"]
         )
-        central_entities_section = ""
-        if central_entities_rows:
-            central_entities_section = f"""<section class="band">
-<h2>Central Entities</h2>
-<p>Entities ranked by total degree (outgoing facts plus incoming references).</p>
-<table><thead><tr><th>Entity</th><th>Outgoing</th><th>Incoming</th><th>Total degree</th></tr></thead>
+        central_concepts_section = ""
+        if central_concepts_rows:
+            central_concepts_section = f"""<section class="band">
+<h2>Central Concepts</h2>
+<p>Concepts ranked by total degree (outgoing facts plus incoming references).</p>
+<table><thead><tr><th>Concept</th><th>Outgoing</th><th>Incoming</th><th>Total degree</th></tr></thead>
 <tbody>
-{central_entities_rows}
+{central_concepts_rows}
 </tbody></table>
 </section>"""
 
-        # The Entity Index and triples table only ever show the first
+        # The Concept Index and triples table only ever show the first
         # _MAX_DISPLAYED_* (by discovery order) -- once that many exist, the
         # rendered HTML/JSON for them is frozen and reused on every later
         # regeneration instead of being rebuilt from an ever-growing list, since
         # a stable prefix of an append-only list never changes once past the cap.
-        if self._frozen_entity_links_html is not None:
-            entity_links = self._frozen_entity_links_html
+        if self._frozen_concept_links_html is not None:
+            concept_links = self._frozen_concept_links_html
         else:
-            entity_links = "\n".join(
-                f'<li><a href="{escape(quote(self._entity_filename(subject)))}">{escape(subject)}</a></li>'
-                for subject in entity_order[:_MAX_DISPLAYED_ENTITIES]
+            concept_links = "\n".join(
+                f'<li><a href="{escape(quote(self._concept_filename(subject)))}">{escape(subject)}</a></li>'
+                for subject in concept_order[:_MAX_DISPLAYED_CONCEPTS]
             )
-            if total_entity_count >= _MAX_DISPLAYED_ENTITIES:
-                self._frozen_entity_links_html = entity_links
-        entity_index_note = (
-            f'<p class="graph-note">Showing the first {min(total_entity_count, _MAX_DISPLAYED_ENTITIES):,} '
-            f"of {total_entity_count:,} entities discovered, in discovery order. "
+            if total_concept_count >= _MAX_DISPLAYED_CONCEPTS:
+                self._frozen_concept_links_html = concept_links
+        concept_index_note = (
+            f'<p class="graph-note">Showing the first {min(total_concept_count, _MAX_DISPLAYED_CONCEPTS):,} '
+            f"of {total_concept_count:,} concepts discovered, in discovery order. "
             'The complete list is in the downloadable database.</p>'
-            if total_entity_count > _MAX_DISPLAYED_ENTITIES
+            if total_concept_count > _MAX_DISPLAYED_CONCEPTS
             else ""
         )
 
@@ -1821,9 +1821,9 @@ class LocalKBCRunner:
     a {{ color:var(--blue); text-decoration:none; }}
     a:hover {{ text-decoration:underline; }}
     .search-box {{ width:100%; max-width:420px; padding:9px 12px; border:1px solid var(--line); border-radius:6px; font-size:14px; margin-bottom:14px; background:var(--panel); color:var(--ink); }}
-    .entity-grid {{ list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(3,1fr); gap:6px 16px; }}
-    .entity-grid li {{ border-top:1px solid var(--line); padding-top:6px; }}
-    .entity-grid a {{ display:block; padding:2px 0; }}
+    .concept-grid {{ list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(3,1fr); gap:6px 16px; }}
+    .concept-grid li {{ border-top:1px solid var(--line); padding-top:6px; }}
+    .concept-grid a {{ display:block; padding:2px 0; }}
     .config-grid {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:12px; margin-bottom:14px; }}
     .config-item {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:11px 13px; }}
     .config-item span {{ display:block; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.06em; font-weight:700; }}
@@ -1842,8 +1842,8 @@ class LocalKBCRunner:
     .sort-toggle:hover {{ background:var(--panel-2); }}
     .graph-canvas {{ width:100%; height:560px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }}
     .graph-note {{ font-size:13px; color:var(--muted); margin:4px 0 12px; }}
-    @media (max-width: 920px) {{ .metrics {{ grid-template-columns:repeat(3,1fr); }} .grid-2 {{ grid-template-columns:1fr; }} .entity-grid {{ grid-template-columns:repeat(2,1fr); }} }}
-    @media (max-width: 640px) {{ header {{ padding:32px 18px 22px; }} main {{ padding:16px; }} .metrics {{ grid-template-columns:repeat(2,1fr); }} .entity-grid {{ grid-template-columns:1fr; }} .graph-canvas {{ height:400px; }} }}
+    @media (max-width: 920px) {{ .metrics {{ grid-template-columns:repeat(3,1fr); }} .grid-2 {{ grid-template-columns:1fr; }} .concept-grid {{ grid-template-columns:repeat(2,1fr); }} }}
+    @media (max-width: 640px) {{ header {{ padding:32px 18px 22px; }} main {{ padding:16px; }} .metrics {{ grid-template-columns:repeat(2,1fr); }} .concept-grid {{ grid-template-columns:1fr; }} .graph-canvas {{ height:400px; }} }}
 </style>
 </head>
 <body>
@@ -1882,15 +1882,15 @@ class LocalKBCRunner:
 {row_predicates}
 {row_classes}
 {row_depth}
-{central_entities_section}
+{central_concepts_section}
 <section class="band">
 <details class="reveal">
-<summary>Entity Index <span class="count-badge" id="entityCount">{total_entity_count}</span></summary>
+<summary>Concept Index <span class="count-badge" id="conceptCount">{total_concept_count}</span></summary>
 <div class="reveal-body">
-{entity_index_note}
-<input type="text" id="entitySearch" class="search-box" placeholder="Filter entities by name&hellip;" autocomplete="off">
-<ul class="entity-grid" id="entityList">
-{entity_links}
+{concept_index_note}
+<input type="text" id="conceptSearch" class="search-box" placeholder="Filter concepts by name&hellip;" autocomplete="off">
+<ul class="concept-grid" id="conceptList">
+{concept_links}
 </ul>
 </div>
 </details>
@@ -1962,9 +1962,9 @@ class LocalKBCRunner:
 <script type="application/json" id="triple-data">{triples_json}</script>
 <script>
 (function () {{
-    var input = document.getElementById('entitySearch');
-    var items = Array.prototype.slice.call(document.querySelectorAll('#entityList li'));
-    var countEl = document.getElementById('entityCount');
+    var input = document.getElementById('conceptSearch');
+    var items = Array.prototype.slice.call(document.querySelectorAll('#conceptList li'));
+    var countEl = document.getElementById('conceptCount');
     // The badge starts showing the true total (which may be larger than
     // items.length when the list below is capped) -- searching only
     // searches what's actually rendered, so the match ratio uses that
@@ -2087,7 +2087,7 @@ class LocalKBCRunner:
         # check_same_thread=False: this connection is created once (usually
         # from the main thread, during startup) and then reused for the
         # life of the run by whichever worker thread next finishes an
-        # entity. That's safe here specifically because every single call
+        # concept. That's safe here specifically because every single call
         # site (all three) already runs under self.state_lock, so access is
         # already fully serialized -- sqlite3's own default thread-affinity
         # check would otherwise reject any use from a thread other than the
@@ -2097,10 +2097,10 @@ class LocalKBCRunner:
         connection.executescript(
             """
             CREATE TABLE run (
-                run_id TEXT, topic TEXT, seed_entity TEXT, model TEXT, llm_url TEXT, language TEXT,
+                run_id TEXT, topic TEXT, seed_concept TEXT, model TEXT, llm_url TEXT, language TEXT,
                 schema_mode TEXT, schema_text TEXT, prompt_used TEXT, facts_multiplier REAL,
                 nthreads INTEGER, max_requests_per_minute INTEGER,
-                max_entities INTEGER, max_bfs_depth INTEGER, max_runtime_seconds INTEGER, max_cost REAL,
+                max_concepts INTEGER, max_bfs_depth INTEGER, max_runtime_seconds INTEGER, max_cost REAL,
                 started_at TEXT, ended_at TEXT, status TEXT, cost_usd REAL,
                 reasoning_effort TEXT, reasoning_enabled INTEGER
             );
@@ -2109,26 +2109,26 @@ class LocalKBCRunner:
             );
             CREATE INDEX idx_triples_subject ON triples(subject);
             CREATE INDEX idx_triples_object ON triples(object);
-            CREATE TABLE entities (
+            CREATE TABLE concepts (
                 name TEXT PRIMARY KEY, depth INTEGER, status TEXT
             );
             CREATE TABLE literals (text TEXT);
-            CREATE TABLE off_domain_entities (text TEXT);
+            CREATE TABLE off_domain_concepts (text TEXT);
             CREATE TABLE failures (
                 id INTEGER PRIMARY KEY, subject TEXT, stage TEXT, error TEXT, detail TEXT, time TEXT
             );
             """
         )
         # Only the "how much has been written" pointers reset to 0 here --
-        # not self._db_pending_entity_updates. That's a queue of status
+        # not self._db_pending_concept_updates. That's a queue of status
         # changes not yet applied (not a position marker), and since this
-        # method runs lazily on first use, entities may already have been
+        # method runs lazily on first use, concepts may already have been
         # marked processed -- and queued for this update -- before the
         # schema above ever existed; clearing it here would silently drop
         # those updates instead of just deferring them to the write that
         # immediately follows this call.
         self._db_triples_scanned_upto = 0
-        self._db_entities_scanned_upto = 0
+        self._db_concepts_scanned_upto = 0
         self._db_literals_scanned_upto = 0
         self._db_off_domain_scanned_upto = 0
         self._db_failures_scanned_upto = 0
@@ -2139,14 +2139,14 @@ class LocalKBCRunner:
 
         Unlike the HTML report (rebuilt wholesale each time, but cheap
         because what it displays is capped), the database holds the full,
-        uncapped dataset -- so a full rebuild on every entity costs O(total
+        uncapped dataset -- so a full rebuild on every concept costs O(total
         data collected so far) per call, measured at ~1.9s/call at 100k
-        entities (~54 hours cumulative over a run). Instead, one connection
+        concepts (~54 hours cumulative over a run). Instead, one connection
         is kept open for the run's lifetime, in WAL mode -- so a concurrent
         download of the file is never corrupted by an in-progress write, it
         just sees the state as of the last checkpoint below, an ordinary
         SQLite guarantee, not a torn/invalid file -- and only rows that are
-        actually new (or, for entities transitioning queued -> processed,
+        actually new (or, for concepts transitioning queued -> processed,
         whose status just changed) are written on each call.
 
         final=True is passed once, right after the run loop ends: it records
@@ -2189,10 +2189,10 @@ class LocalKBCRunner:
         connection.execute(
             """
             INSERT INTO run (
-                run_id, topic, seed_entity, model, llm_url, language,
+                run_id, topic, seed_concept, model, llm_url, language,
                 schema_mode, schema_text, prompt_used, facts_multiplier,
                 nthreads, max_requests_per_minute,
-                max_entities, max_bfs_depth, max_runtime_seconds, max_cost,
+                max_concepts, max_bfs_depth, max_runtime_seconds, max_cost,
                 started_at, ended_at, status, cost_usd,
                 reasoning_effort, reasoning_enabled
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -2200,7 +2200,7 @@ class LocalKBCRunner:
             (
                 self.run_dir.name,
                 self.config.topic,
-                self.config.seed_entity,
+                self.config.seed_concept,
                 self.config.model,
                 self.config.llm_url,
                 language_name,
@@ -2210,7 +2210,7 @@ class LocalKBCRunner:
                 self.config.facts_multiplier,
                 self.config.nthreads,
                 self.config.max_requests_per_minute,
-                self.config.max_entities,
+                self.config.max_concepts,
                 self.config.max_bfs_depth,
                 self.config.max_runtime_seconds,
                 self.config.max_cost,
@@ -2230,20 +2230,20 @@ class LocalKBCRunner:
             )
             self._db_triples_scanned_upto = len(self.triples_in_order)
 
-        entity_order = list(self.depths.keys())
-        new_entities = entity_order[self._db_entities_scanned_upto :]
-        if new_entities:
+        concept_order = list(self.depths.keys())
+        new_concepts = concept_order[self._db_concepts_scanned_upto :]
+        if new_concepts:
             connection.executemany(
-                "INSERT INTO entities (name, depth, status) VALUES (?, ?, 'queued')",
-                [(name, self.depths[name]) for name in new_entities],
+                "INSERT INTO concepts (name, depth, status) VALUES (?, ?, 'queued')",
+                [(name, self.depths[name]) for name in new_concepts],
             )
-            self._db_entities_scanned_upto = len(entity_order)
-        if self._db_pending_entity_updates:
+            self._db_concepts_scanned_upto = len(concept_order)
+        if self._db_pending_concept_updates:
             connection.executemany(
-                "UPDATE entities SET status = 'processed' WHERE name = ?",
-                [(name,) for name in self._db_pending_entity_updates],
+                "UPDATE concepts SET status = 'processed' WHERE name = ?",
+                [(name,) for name in self._db_pending_concept_updates],
             )
-            self._db_pending_entity_updates = []
+            self._db_pending_concept_updates = []
 
         new_literals = self.literal_texts[self._db_literals_scanned_upto :]
         if new_literals:
@@ -2253,7 +2253,7 @@ class LocalKBCRunner:
         new_off_domain = self.off_domain_texts[self._db_off_domain_scanned_upto :]
         if new_off_domain:
             connection.executemany(
-                "INSERT INTO off_domain_entities (text) VALUES (?)", [(text,) for text in new_off_domain]
+                "INSERT INTO off_domain_concepts (text) VALUES (?)", [(text,) for text in new_off_domain]
             )
             self._db_off_domain_scanned_upto = len(self.off_domain_texts)
 
@@ -2280,7 +2280,7 @@ class LocalKBCRunner:
             connection.close()
             self._db_connection = None
 
-    def _entity_filename(self, name: str) -> str:
+    def _concept_filename(self, name: str) -> str:
         cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip().rstrip(".")
         cleaned = re.sub(r"\s+", " ", cleaned)
         if not cleaned:
@@ -2303,7 +2303,7 @@ class LocalKBCRunner:
         if self.config.max_runtime_seconds and time.monotonic() - self.started_at >= self.config.max_runtime_seconds:
             self._log("Runtime limit reached.")
             return True
-        if self.config.max_entities and self._get_total_object_count() >= self.config.max_entities:
+        if self.config.max_concepts and self._get_total_object_count() >= self.config.max_concepts:
             self._log("Object limit reached.")
             return True
         if self.config.max_cost is not None:
@@ -2358,7 +2358,7 @@ class LocalKBCRunner:
                 "active": active,
                 "triples": self._count_lines(self.triples_output_path),
                 "literals": self._count_lines(self.literals_path),
-                "off_domain_entities": self._count_lines(self.off_domain_entities_path),
+                "off_domain_concepts": self._count_lines(self.off_domain_concepts_path),
                 "total_objects": self._get_total_object_count(),
                 "failed_subjects": self._count_lines(self.failed_subjects_path),
                 "cost_usd": cost_usd,
@@ -2368,7 +2368,7 @@ class LocalKBCRunner:
     def _heartbeat_describe(self) -> tuple[str | None, str | None]:
         with self.state_lock:
             queued = len(self.subject_queue)
-        return None, (f"{queued:,} entities queued" if queued else None)
+        return None, (f"{queued:,} concepts queued" if queued else None)
 
     def _log(self, message: str, level: str = "info") -> None:
         self.heartbeat.logged()
@@ -2397,8 +2397,8 @@ class LocalKBCRunner:
 
             if not queue_order and not processed_list:
                 # Brand new run (or an event log that somehow ended up empty).
-                queue_order = [self.config.seed_entity]
-                depths.setdefault(self.config.seed_entity, 0)
+                queue_order = [self.config.seed_concept]
+                depths.setdefault(self.config.seed_concept, 0)
 
             if not used_event_log:
                 # A fresh run, or resuming one started before the event log
@@ -2426,7 +2426,7 @@ class LocalKBCRunner:
             ]
             self.off_domain_texts = [
                 str(row["text"])
-                for row in self._read_jsonl(self.off_domain_entities_path)
+                for row in self._read_jsonl(self.off_domain_concepts_path)
                 if row.get("text") is not None
             ]
             self.literals_count = len(self.literal_texts)

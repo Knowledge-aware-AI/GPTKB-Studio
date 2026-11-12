@@ -7,11 +7,11 @@ https://github.com/Knowledge-aware-AI/GPTKB2_disambiguation_on_the_fly
 (construction.py). Every round runs each stage once, in the repo's order, on
 whatever items their status says are ready:
 
-    NEDG -> NED2 -> NED1 -> Elicitation -> PDG -> CDG -> PD -> CD -> NER
+    CDG -> CD2 -> CD1 -> Elicitation -> PDG -> PD -> CR
 
 with the same candidate retrieval (top-5 by label embedding; same-label
-entities ranked by description for NED2), the same caching (a (predicate,
-object label) pair resolved to one entity more than 50 times skips NER/NED),
+concepts ranked by description for CD2), the same caching (a (predicate,
+object label) pair resolved to one concept more than 50 times skips CR/CD),
 the same guarded parallelization (pending object labels are clustered and
 only one per cluster is disambiguated per round, unless its label has been
 resolved more than 50 times already), and the same duplicate-triple handling.
@@ -19,7 +19,7 @@ resolved more than 50 times already), and the same duplicate-triple handling.
 What is GPTKB Studio's rather than GPTKB 2.0's: the elicitation prompt (topic-
 scoped, multilingual, editable -- plus GPTKB 2.0's subject description line),
 the endpoints/models (any OpenAI-compatible Chat Completions server, one model
-each for elicitation, NER and NED), BFS depth tracking, the stopping criteria,
+each for elicitation, CR and CD), BFS depth tracking, the stopping criteria,
 cost tracking and the live progress events/HTML report of this app.
 
 Like the repo, only LLM calls run concurrently (up to `nthreads` at once);
@@ -69,15 +69,12 @@ ProgressCallback = Callable[[dict[str, Any]], None]
 SCADS_EMBEDDING_URL = "https://llm.scads.ai/v1"
 DEFAULT_EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-4B"
 
-# GPTKB 2.0's seed predicate (Constructor.__init__ default). GPTKB 2.0 also
-# seeds the class "human", only because its class disambiguation does nothing
-# while the class index is empty; here a class (or entity, or relation) with
-# no candidates at all skips the LLM and goes straight to "None of above", so
-# a topic-specific KB starts without an unrelated seed class.
-SEED_PREDICATE = ("instanceOf", "relation of type constraints")
+# Canonical class-membership predicate. subClassOf is seeded separately;
+# their objects share the same canonical concept index and expansion queue.
+SEED_PREDICATE = ("instanceOf", "Relates an individual concept to a class it belongs to; distinct from subClassOf.")
 
-ROLES = ("elicitation", "ner", "ned")
-ROLE_NAMES = {"elicitation": "Elicitation", "ner": "NER", "ned": "NED"}
+ROLES = ("elicitation", "cr", "cd")
+ROLE_NAMES = {"elicitation": "Elicitation", "cr": "CR", "cd": "CD"}
 REPORT_INTERVAL_SECONDS = 20.0
 STATUS_INTERVAL_SECONDS = 1.0
 
@@ -88,28 +85,28 @@ class DisambigConfig:
     api_key: str
     model: str  # elicitation model
     topic: str
-    seed_entity: str
-    ner_model: str = ""
-    ned_model: str = ""
-    # Endpoints of the NER/NED models when not the elicitation endpoint
+    seed_concept: str
+    cr_model: str = ""
+    cd_model: str = ""
+    # Endpoints of the CR/CD models when not the elicitation endpoint
     # (e.g. ScaDS.AI next to OpenAI); empty means the elicitation endpoint.
-    ner_llm_url: str = ""
-    ner_api_key: str = ""
-    ned_llm_url: str = ""
-    ned_api_key: str = ""
+    cr_llm_url: str = ""
+    cr_api_key: str = ""
+    cd_llm_url: str = ""
+    cd_api_key: str = ""
     language: str = "en"
     schema_mode: str = "open"
     schema_text: str = ""
     facts_multiplier: float = 1.0
     prompt_template: str = ""
-    max_entities: int | None = None
+    max_concepts: int | None = None
     max_bfs_depth: int | None = None
     max_runtime_seconds: int | None = None
     max_cost: float | None = None
     nthreads: int = 5
     # Long enough for an elicitation answer of 100+ triples from a slower
     # model (e.g. Gemma 4 on ScaDS.AI took over two minutes for popular
-    # entities, and every timeout restarts the request from scratch).
+    # concepts, and every timeout restarts the request from scratch).
     request_timeout_seconds: float = 300.0
     max_requests_per_minute: int | None = None
     reasoning_effort: str | None = None
@@ -119,14 +116,14 @@ class DisambigConfig:
     embedding_api_key: str = ""
     embedding_model: str = DEFAULT_EMBEDDING_MODEL
     # GPTKB 2.0 hyperparameters (paper Section 4.1 / repo single mode).
-    num_candidates: int = 5  # relations and classes
-    # Entity merging (NED1/NED2): how many candidates the model is shown
+    num_candidates: int = 5  # relations
+    # Concept merging (CD1/CD2): how many candidates the model is shown
     # (GPTKB 2.0: 5), and the minimum label similarity a candidate needs to be
     # shown at all -- 0 is GPTKB 2.0; raising it makes merging more
-    # conservative. Entities with the mention's exact label or alias are
+    # conservative. Concepts with the mention's exact label or alias are
     # always candidates.
-    ned_candidates: int = 5
-    ned_similarity_floor: float = 0.0
+    cd_candidates: int = 5
+    cd_similarity_floor: float = 0.0
     frequency_threshold: int = 50  # caching and guarded parallelization
     cluster_distance: float = 0.15
     chunk_size: int = 20
@@ -141,18 +138,18 @@ class DisambigConfig:
     pacing: bool = True
 
     def endpoint_for(self, role: str) -> tuple[str, str]:
-        """(URL, API key) of the role's endpoint; NER/NED default to the elicitation endpoint."""
-        if role == "ner" and self.ner_llm_url.strip():
-            return self.ner_llm_url, self.ner_api_key
-        if role == "ned" and self.ned_llm_url.strip():
-            return self.ned_llm_url, self.ned_api_key
+        """(URL, API key) of the role's endpoint; CR/CD default to the elicitation endpoint."""
+        if role == "cr" and self.cr_llm_url.strip():
+            return self.cr_llm_url, self.cr_api_key
+        if role == "cd" and self.cd_llm_url.strip():
+            return self.cd_llm_url, self.cd_api_key
         return self.llm_url, self.api_key
 
     def model_for(self, role: str) -> str:
-        if role == "ner":
-            return self.ner_model.strip() or self.model
-        if role == "ned":
-            return self.ned_model.strip() or self.model
+        if role == "cr":
+            return self.cr_model.strip() or self.model
+        if role == "cd":
+            return self.cd_model.strip() or self.model
         return self.model
 
 
@@ -170,7 +167,7 @@ def normalize_url(url: str) -> str:
 
 @dataclass
 class Endpoint:
-    """One OpenAI-compatible server the run talks to. NER and NED can use a
+    """One OpenAI-compatible server the run talks to. CR and CD can use a
     different endpoint than elicitation (e.g. ScaDS.AI models next to an
     OpenAI elicitation model), so the client keeps one per distinct URL."""
 
@@ -232,13 +229,13 @@ class LLMClient:
         self.cost_lock = threading.Lock()
         self.total_cost_usd = 0.0
         self.capabilities = {role: self._capability(role) for role in ROLES}
-        # Elicitation uses the reasoning settings chosen in the form. NER and
-        # NED use the lowest effort the model offers -- GPTKB 2.0 runs its
+        # Elicitation uses the reasoning settings chosen in the form. CR and
+        # CD use the lowest effort the model offers -- GPTKB 2.0 runs its
         # disambiguation prompts with minimal reasoning and 128 output tokens.
         self.reasoning: dict[str, tuple[str | None, bool | None]] = {
             "elicitation": (config.reasoning_effort, config.reasoning_enabled),
         }
-        for role in ("ner", "ned"):
+        for role in ("cr", "cd"):
             effort = (self.capabilities[role] or {}).get("effort")
             self.reasoning[role] = (effort["levels"][0] if effort else None, None)
 
@@ -458,10 +455,10 @@ class DisambiguatedKBCRunner:
                                    paused=lambda: bool(self.pause_event and self.pause_event.is_set()))
         self.llm = LLMClient(config, stop_event, self._log, UsageCounter(run_dir / "usage.json"), self.heartbeat)
         self.instance_of_labels = P.instance_of_labels(config.language)
-        self.entity_index = VectorIndex()
-        self.predicate_index = VectorIndex()
         self.concept_index = VectorIndex()
-        self.dirty_entities: set[str] = set()
+        self.predicate_index = VectorIndex()
+        self.seed_id = "C0"
+        self.dirty_concepts: set[str] = set()
         self.active_requests = 0
         self.active_lock = threading.Lock()
         self.started_at = 0.0
@@ -510,12 +507,12 @@ class DisambiguatedKBCRunner:
                 "active": active,
                 "triples": counts.get("triples", 0),
                 "literals": counts.get("literals", 0),
-                "entities": counts.get("entities", 0),
+                "concepts": counts.get("concepts", 0),
                 "pending": counts.get("pending", 0),
                 "failed_subjects": counts.get("failed_subjects", 0),
                 # Kept for the legacy dashboard fields.
-                "off_domain_entities": 0,
-                "total_objects": counts.get("entities", 0),
+                "off_domain_concepts": 0,
+                "total_objects": counts.get("concepts", 0),
                 "cost_usd": round(self.total_cost(), 4) if self._cost_tracked() else None,
             }
         )
@@ -552,8 +549,8 @@ class DisambiguatedKBCRunner:
         final_status = "finished"
         try:
             self._log(
-                f"Models: elicitation {self.llm.model_label('elicitation')}, NER {self.llm.model_label('ner')}, "
-                f"NED {self.llm.model_label('ned')}; embeddings {self.config.embedding_model}."
+                f"Models: elicitation {self.llm.model_label('elicitation')}, CR {self.llm.model_label('cr')}, "
+                f"CD {self.llm.model_label('cd')}; embeddings {self.config.embedding_model}."
             )
             if any(endpoint.kind == "openai" for endpoint in self.llm.endpoints.values()):
                 self._log(
@@ -600,25 +597,21 @@ class DisambiguatedKBCRunner:
                 return
             rounds += 1
             did_work = False
-            if_ned = if_pd = if_cd = True
+            if_cd = if_pd = True
 
-            if self._stage_nedg():
-                did_work, if_ned = True, False
-            if self._stage_ned2():
-                did_work, if_ned = True, False
-            if if_ned and self._stage_ned1():
+            if self._stage_cdg():
+                did_work, if_cd = True, False
+            if self._stage_cd2():
+                did_work, if_cd = True, False
+            if if_cd and self._stage_cd1():
                 did_work = True
             if self._stage_elicitation():
                 did_work = True
             if self._stage_pdg():
                 did_work, if_pd = True, False
-            if self._stage_cdg():
-                did_work, if_cd = True, False
             if if_pd and self._stage_pd():
                 did_work = True
-            if if_cd and self._stage_cd():
-                did_work = True
-            if self._stage_ner():
+            if self._stage_cr():
                 did_work = True
 
             self._emit_status("running")
@@ -710,7 +703,7 @@ class DisambiguatedKBCRunner:
 
     def _record_failure(self, subject: str, stage: str, error: str, detail: str | None = None) -> None:
         # Failures are shown in the public report: no API keys in them.
-        redact = redactor(self.config.api_key, self.config.ner_api_key, self.config.ned_api_key,
+        redact = redactor(self.config.api_key, self.config.cr_api_key, self.config.cd_api_key,
                           self.config.embedding_api_key)
         self.db.execute(
             "INSERT INTO failures (subject, stage, error, detail, time) VALUES (?, ?, ?, ?, ?)",
@@ -748,11 +741,11 @@ class DisambiguatedKBCRunner:
         self.db.execute(
             "INSERT INTO run VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                self.run_dir.name, c.pipeline, c.topic, c.seed_entity,
-                c.model_for("elicitation"), c.model_for("ner"), c.model_for("ned"), c.embedding_model,
+                self.run_dir.name, c.pipeline, c.topic, c.seed_concept,
+                c.model_for("elicitation"), c.model_for("cr"), c.model_for("cd"), c.embedding_model,
                 c.llm_url, c.language, c.schema_mode, c.schema_text, self.elicitation_prompt_body(),
                 c.facts_multiplier, c.nthreads, c.max_requests_per_minute,
-                c.max_entities, c.max_bfs_depth, c.max_runtime_seconds, c.max_cost,
+                c.max_concepts, c.max_bfs_depth, c.max_runtime_seconds, c.max_cost,
                 run_config.get("started_at"), run_config.get("ended_at"), status,
                 round(self.total_cost(), 4) if self._cost_tracked() else None,
                 effort, None if enabled is None else int(enabled),
@@ -771,57 +764,69 @@ class DisambiguatedKBCRunner:
 
     def _load_or_seed(self) -> None:
         self.cost_before_session = float(S.get_meta(self.db, "cost_usd", "0") or 0)
-        if self.db.execute("SELECT COUNT(*) FROM entities").fetchone()[0] == 0:
+        if self.db.execute("SELECT COUNT(*) FROM concepts").fetchone()[0] == 0:
             self._seed()
         else:
             self._log("Resuming from the existing knowledge base.")
+        self.seed_id = S.get_meta(self.db, "seed_id", "C0")
+        subclass = self.db.execute("SELECT id FROM predicates WHERE label = 'subClassOf' ORDER BY seq LIMIT 1").fetchone()
+        if subclass:
+            self.subclass_predicate_id = subclass[0]
+        else:
+            predicate_id, seq = self._next_id("P", "next_predicate")
+            self.db.execute("INSERT INTO predicates (id, seq, label, description) VALUES (?, ?, ?, ?)",
+                            (predicate_id, seq, "subClassOf", "Relates a narrower concept to a broader concept; distinct from instanceOf."))
+            self.subclass_predicate_id = predicate_id
+            self.db.commit()
+        self.typing_predicate_ids = {"P0", self.subclass_predicate_id}
         for kind, table, index in (
-            ("entities", "entities", self.entity_index),
+            ("concepts", "concepts", self.concept_index),
             ("predicates", "predicates", self.predicate_index),
-            ("classes", "concepts", self.concept_index),
         ):
             rows = self.db.execute(f"SELECT id, label FROM {table} ORDER BY seq").fetchall()
-            if table == "entities":
-                rows += self.db.execute("SELECT entity_id, alias FROM entity_aliases ORDER BY rowid").fetchall()
+            if table == "concepts":
+                rows += self.db.execute("SELECT concept_id, alias FROM concept_aliases ORDER BY rowid").fetchall()
             if rows:
                 index.add([r[0] for r in rows], self.embedder.embed([r[1] for r in rows]))
         self._log(
-            f"Indexed {len(self.entity_index)} entities, {len(self.predicate_index)} relations and "
-            f"{len(self.concept_index)} classes for candidate retrieval."
+            f"Indexed {len(self.concept_index)} concepts and {len(self.predicate_index)} relations for candidate retrieval."
         )
 
     def _seed(self) -> None:
-        seed = self.config.seed_entity.strip()
-        self._current(f"Describing seed entity {seed}")
+        seed = self.config.seed_concept.strip()
+        self._current(f"Describing seed concept {seed}")
         system, user = P.seed_description_messages(seed, self.config.topic)
         try:
-            description = P.parse_description(self.llm.chat("ned", system, user))
+            description = P.parse_description(self.llm.chat("cd", system, user))
         except StopRequested:
             raise
         except Exception as exc:
-            description = f"{seed}, the seed entity of a knowledge base on {self.config.topic}."
-            self._log(f"Could not generate a description for the seed entity ({exc}); using a generic one.", "warning")
+            description = f"{seed}, the seed concept of a knowledge base on {self.config.topic}."
+            self._log(f"Could not generate a description for the seed concept ({exc}); using a generic one.", "warning")
         self.db.execute(
-            "INSERT INTO entities (id, seq, label, description, status, depth, first_appeared) VALUES (?, ?, ?, ?, ?, 0, ?)",
-            ("E0", 0, seed, description, S.ENTITY_UNEXPLORED, "Where the exploration starts"),
+            "INSERT INTO concepts (id, seq, label, description, status, depth, first_appeared) VALUES (?, ?, ?, ?, ?, 0, ?)",
+            ("C0", 0, seed, description, S.CONCEPT_UNEXPLORED, "Where the exploration starts"),
         )
         self.db.execute(
             "INSERT INTO predicates (id, seq, label, description, first_appeared) VALUES ('P0', 0, ?, ?, ?)",
             (*SEED_PREDICATE, "Where the exploration starts"),
         )
-        S.set_meta(self.db, "next_entity", 1)
-        S.set_meta(self.db, "next_predicate", 1)
-        S.set_meta(self.db, "next_concept", 0)
+        S.set_meta(self.db, "seed_id", "C0")
+        S.set_meta(self.db, "next_concept", 1)
+        self.db.execute(
+            "INSERT INTO predicates (id, seq, label, description, first_appeared) VALUES ('P1', 1, ?, ?, ?)",
+            ("subClassOf", "Relates a narrower concept to a broader concept; distinct from instanceOf.", "Where the exploration starts"),
+        )
+        S.set_meta(self.db, "next_predicate", 2)
         S.set_meta(self.db, "next_triple", 0)
         self.db.commit()
-        self.dirty_entities.add("E0")
-        self._log(f"Seed entity E0 '{seed}': {description}")
+        self.dirty_concepts.add("C0")
+        self._log(f"Seed concept C0 '{seed}': {description}")
 
     # ---- shared update helpers --------------------------------------------
 
     def _delete_triple(self, triple_id: str) -> None:
         self.db.execute("DELETE FROM triples WHERE id = ?", (triple_id,))
-        self.db.execute("DELETE FROM instance_triples WHERE triple_id = ?", (triple_id,))
         self.db.execute("DELETE FROM candidates WHERE triple_id = ?", (triple_id,))
 
     def _update_triple(self, triple_id: str, **fields: Any) -> bool:
@@ -838,24 +843,24 @@ class DisambiguatedKBCRunner:
             self._delete_triple(triple_id)
             return False
 
-    def _resolve_object(self, triple: dict[str, Any], entity_id: str, resolution: str) -> None:
+    def _resolve_object(self, triple: dict[str, Any], concept_id: str, resolution: str) -> None:
         if self._update_triple(
-            triple["id"], object_id=entity_id, object_status=S.OBJ_FINISHED, resolution=resolution
+            triple["id"], object_id=concept_id, object_status=S.OBJ_FINISHED, resolution=resolution
         ):
-            label = self.db.execute("SELECT label FROM entities WHERE id = ?", (entity_id,)).fetchone()
+            label = self.db.execute("SELECT label FROM concepts WHERE id = ?", (concept_id,)).fetchone()
             if label and label[0] != triple["object_label"]:
                 cursor = self.db.execute(
-                    "INSERT OR IGNORE INTO entity_aliases (entity_id, alias) VALUES (?, ?)",
-                    (entity_id, triple["object_label"]),
+                    "INSERT OR IGNORE INTO concept_aliases (concept_id, alias) VALUES (?, ?)",
+                    (concept_id, triple["object_label"]),
                 )
                 if cursor.rowcount:
                     # As in the paper (Section 3.2.3): the merged mention's
-                    # label joins the entity's aliases "so that future lookups
-                    # can find the entity by either name" -- the published
+                    # label joins the concept's aliases "so that future lookups
+                    # can find the concept by either name" -- the published
                     # code only stores it, here it is also indexed.
-                    self.entity_index.add([entity_id], self.embedder.embed([triple["object_label"]]))
-            self.dirty_entities.add(entity_id)
-            self.dirty_entities.add(triple["subject_id"])
+                    self.concept_index.add([concept_id], self.embedder.embed([triple["object_label"]]))
+            self.dirty_concepts.add(concept_id)
+            self.dirty_concepts.add(triple["subject_id"])
 
     def _bump_attempts(self, table: str, key_column: str, key: str) -> int:
         self.db.execute(f"UPDATE {table} SET attempts = attempts + 1 WHERE {key_column} = ?", (key,))
@@ -863,9 +868,8 @@ class DisambiguatedKBCRunner:
         return int(row[0]) if row else 0
 
     STAGE_NAMES = {
-        "ner": "NER", "ned1": "Triple-context NED", "nedg": "Description generation", "ned2": "Description-context NED",
-        "pd": "Relation disambiguation", "pdg": "Relation description", "cd": "Class disambiguation",
-        "cdg": "Class description",
+        "cr": "CR", "cd1": "Triple-context CD", "cdg": "Description generation", "cd2": "Description-context CD",
+        "pd": "Relation disambiguation", "pdg": "Relation description",
     }
 
     def _attempt_failed(self, table: str, key_column: str, key: str, stage: str, label: str, error: str) -> bool:
@@ -895,13 +899,13 @@ class DisambiguatedKBCRunner:
         columns = [d[0] for d in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-    def _entity_rows(self, ids: list[str]) -> dict[str, tuple[str, str]]:
+    def _concept_rows(self, ids: list[str]) -> dict[str, tuple[str, str]]:
         if not ids:
             return {}
         placeholders = ",".join("?" * len(ids))
         return {
             row[0]: (row[1], row[2])
-            for row in self.db.execute(f"SELECT id, label, description FROM entities WHERE id IN ({placeholders})", ids)
+            for row in self.db.execute(f"SELECT id, label, description FROM concepts WHERE id IN ({placeholders})", ids)
         }
 
     def _set_candidates(self, triple_id: str, stage: str, ids: list[str]) -> None:
@@ -914,7 +918,7 @@ class DisambiguatedKBCRunner:
     def _cached_object_ids(self, pairs: set[tuple[str, str]]) -> dict[tuple[str, str], str]:
         """GPTKB 2.0's caching: a (predicate label, object label) pair whose
         object was resolved more than `frequency_threshold` times, always to
-        the same entity, resolves to it directly."""
+        the same concept, resolves to it directly."""
         result: dict[tuple[str, str], str] = {}
         pair_list = list(pairs)
         for start in range(0, len(pair_list), 400):
@@ -924,7 +928,7 @@ class DisambiguatedKBCRunner:
             rows = self.db.execute(
                 f"""
                 SELECT predicate_label, object_label, MIN(object_id) FROM triples
-                WHERE object_type = 'ne' AND object_id IS NOT NULL
+                WHERE object_type = 'concept' AND object_id IS NOT NULL
                   AND (predicate_label, object_label) IN (VALUES {values})
                 GROUP BY predicate_label, object_label
                 HAVING COUNT(*) > ? AND MIN(object_id) = MAX(object_id)
@@ -938,42 +942,42 @@ class DisambiguatedKBCRunner:
     # ---- Elicitation -------------------------------------------------------
 
     def _stage_elicitation(self) -> bool:
-        if self.config.max_entities and not self.exploration_closed:
-            count = self.db.execute("SELECT COUNT(*) FROM entities").fetchone()[0]
-            if count >= self.config.max_entities:
+        if self.config.max_concepts and not self.exploration_closed:
+            count = self.db.execute("SELECT COUNT(*) FROM concepts").fetchone()[0]
+            if count >= self.config.max_concepts:
                 self.exploration_closed = True
-                self.limit_reason = f"Entity limit reached ({count:,} entities): no further entities are explored."
+                self.limit_reason = f"Concept limit reached ({count:,} concepts): no further concepts are explored."
                 self._log(self.limit_reason + " Finishing the disambiguation of pending triples.")
         if self.exploration_closed:
             return False
 
         depth_clause = "" if self.config.max_bfs_depth is None else "AND depth <= ?"
         params: list[Any] = [] if self.config.max_bfs_depth is None else [self.config.max_bfs_depth]
-        entities = self._rows(
+        concepts = self._rows(
             self.db.execute(
-                f"SELECT id, label, description, depth FROM entities WHERE status = 'unexplored' {depth_clause} "
+                f"SELECT id, label, description, depth FROM concepts WHERE status = 'unexplored' {depth_clause} "
                 f"ORDER BY seq LIMIT ?",
                 [*params, max(self.config.chunk_size, self.config.nthreads)],
             )
         )
-        if not entities:
+        if not concepts:
             return False
-        names = ", ".join(e["label"] for e in entities[:3])
-        self._current(f"Elicitation: {names}" + (f" (+{len(entities) - 3} more)" if len(entities) > 3 else ""))
+        names = ", ".join(e["label"] for e in concepts[:3])
+        self._current(f"Elicitation: {names}" + (f" (+{len(concepts) - 3} more)" if len(concepts) > 3 else ""))
 
         base = self.elicitation_prompt_body()
         language = self.config.language
-        def build(entity: dict[str, Any]) -> tuple[str, str]:
-            prompt = append_subject_line(base, language, entity["label"]) if self.config.prompt_template.strip() else (
+        def build(concept: dict[str, Any]) -> tuple[str, str]:
+            prompt = append_subject_line(base, language, concept["label"]) if self.config.prompt_template.strip() else (
                 build_elicitation_prompt(
-                    language, self.config.topic, entity["label"], self.config.facts_multiplier,
+                    language, self.config.topic, concept["label"], self.config.facts_multiplier,
                     self.config.schema_mode, self.config.schema_text,
                 )
             )
-            return "", P.elicitation_user_message(prompt, language, entity["description"])
+            return "", P.elicitation_user_message(prompt, language, concept["description"])
 
         explored = stored = 0
-        for entity, output, error in self._fan_out("elicitation", entities, build):
+        for concept, output, error in self._fan_out("elicitation", concepts, build):
             if isinstance(error, ContextWindowExceeded) and error.text:
                 # A cut-off answer is usually unparsable, but a model may have
                 # finished the JSON and gone on talking: keep what parses.
@@ -989,45 +993,45 @@ class DisambiguatedKBCRunner:
             except Exception as exc:
                 if isinstance(exc, ContextWindowExceeded):
                     # The same prompt does not fit next time either.
-                    self.db.execute("UPDATE entities SET status = 'failed' WHERE id = ?", (entity["id"],))
-                    self._record_failure(entity["label"], "context_window", str(exc), exc.text)
+                    self.db.execute("UPDATE concepts SET status = 'failed' WHERE id = ?", (concept["id"],))
+                    self._record_failure(concept["label"], "context_window", str(exc), exc.text)
                     self._log(
-                        f"Giving up on {entity['label']}: {exc}. Asking again would fail the same way; a model "
-                        f"with a larger context window, fewer triples per entity or a shorter prompt avoids this.",
+                        f"Giving up on {concept['label']}: {exc}. Asking again would fail the same way; a model "
+                        f"with a larger context window, fewer triples per concept or a shorter prompt avoids this.",
                         "error",
                     )
                     self.db.commit()
                     continue
                 stage = "llm_request" if error else "json_parse"
-                attempt = self._bump_attempts("entities", "id", entity["id"])
+                attempt = self._bump_attempts("concepts", "id", concept["id"])
                 if attempt >= self.config.max_attempts:
-                    self.db.execute("UPDATE entities SET status = 'failed' WHERE id = ?", (entity["id"],))
-                    self._record_failure(entity["label"], stage, str(exc), None if error else output)
+                    self.db.execute("UPDATE concepts SET status = 'failed' WHERE id = ?", (concept["id"],))
+                    self._record_failure(concept["label"], stage, str(exc), None if error else output)
                     self._log(
-                        f"Giving up on {entity['label']} after {attempt} failed attempts ({str(exc)[:120]}).", "error"
+                        f"Giving up on {concept['label']} after {attempt} failed attempts ({str(exc)[:120]}).", "error"
                     )
                 else:
                     self._log(
-                        f"Elicitation failed for {entity['label']} ({str(exc)[:120]}); attempt {attempt} of "
+                        f"Elicitation failed for {concept['label']} ({str(exc)[:120]}); attempt {attempt} of "
                         f"{self.config.max_attempts}, will try again.",
                         "warning",
                     )
                 self.db.commit()
                 continue
-            count = self._commit_new_triples(entity, facts)
+            count = self._commit_new_triples(concept, facts)
             self.db.execute(
-                "UPDATE entities SET status = 'explored', num_triples = ? WHERE id = ?", (count, entity["id"])
+                "UPDATE concepts SET status = 'explored', num_triples = ? WHERE id = ?", (count, concept["id"])
             )
             self.db.commit()
-            self.dirty_entities.add(entity["id"])
+            self.dirty_concepts.add(concept["id"])
             explored += 1
             stored += count
-            self._log(f"Processed {entity['label']} ({entity['id']}): stored {count} triples.")
+            self._log(f"Processed {concept['label']} ({concept['id']}): stored {count} triples.")
         if explored:
-            self._log(f"Elicitation: {explored} entities explored, {stored} new triples.")
+            self._log(f"Elicitation: {explored} concepts explored, {stored} new triples.")
         return True
 
-    def _commit_new_triples(self, entity: dict[str, Any], facts: list[dict[str, str]]) -> int:
+    def _commit_new_triples(self, concept: dict[str, Any], facts: list[dict[str, str]]) -> int:
         seen: set[tuple[str, str, str]] = set()
         unique = []
         for fact in facts:
@@ -1042,40 +1046,34 @@ class DisambiguatedKBCRunner:
             triple_id, seq = self._next_id("T", "next_triple")
             predicate, obj = fact["predicate"], fact["object"]
             row: dict[str, Any] = {
-                "id": triple_id, "seq": seq, "subject_id": entity["id"], "subject_label": fact["subject"],
+                "id": triple_id, "seq": seq, "subject_id": concept["id"], "subject_label": fact["subject"],
                 "predicate_label": predicate, "predicate_id": None, "predicate_status": S.PRED_GENERATED,
                 "object_label": obj, "object_id": None, "object_type": S.TYPE_UNRECOGNIZED,
                 "object_status": S.OBJ_GENERATED, "resolution": None,
             }
-            is_instance = False
             if (predicate, obj) in cache:
-                row.update(object_id=cache[(predicate, obj)], object_type=S.TYPE_NE,
+                row.update(object_id=cache[(predicate, obj)], object_type=S.TYPE_CONCEPT,
                            object_status=S.OBJ_FINISHED, resolution="cache")
-            elif predicate in self.instance_of_labels:
-                row.update(predicate_id="P0", predicate_status=S.PRED_FINISHED, object_type=S.TYPE_CLASS,
-                           object_status=S.OBJ_FINISHED)
-                is_instance = True
+            if predicate in self.instance_of_labels:
+                row.update(predicate_id="P0", predicate_status=S.PRED_FINISHED)
+            elif predicate == "subClassOf":
+                row.update(predicate_id=self.subclass_predicate_id, predicate_status=S.PRED_FINISHED)
             columns = ", ".join(row)
             cursor = self.db.execute(
                 f"INSERT OR IGNORE INTO triples ({columns}) VALUES ({', '.join('?' * len(row))})", list(row.values())
             )
             if cursor.rowcount:
                 inserted += 1
-                if is_instance:
-                    self.db.execute(
-                        "INSERT OR IGNORE INTO instance_triples (triple_id, entity_id, concept_label) VALUES (?, ?, ?)",
-                        (triple_id, entity["id"], obj),
-                    )
                 if row["object_id"]:
-                    self.dirty_entities.add(row["object_id"])
+                    self.dirty_concepts.add(row["object_id"])
         return inserted
 
-    # ---- NER ---------------------------------------------------------------
+    # ---- CR ---------------------------------------------------------------
 
-    def _stage_ner(self) -> bool:
+    def _stage_cr(self) -> bool:
         triples = self._rows(
             self.db.execute(
-                "SELECT id, subject_id, subject_label, predicate_label, object_label FROM triples "
+                "SELECT id, subject_id, subject_label, predicate_id, predicate_label, object_label FROM triples "
                 "WHERE object_type = 'unrecognized' AND object_status = 'generated' "
                 "AND predicate_status IN ('pd_finished', 'finished') ORDER BY seq LIMIT ?",
                 (self.config.fetch_size,),
@@ -1083,40 +1081,50 @@ class DisambiguatedKBCRunner:
         )
         if not triples:
             return False
-        self._current(f"NER: {len(triples)} triple objects")
+        # Typing targets are concepts by definition, but use the same CD and
+        # expansion machinery as all other concept objects.
+        typed = [t for t in triples if t["predicate_id"] in self.typing_predicate_ids]
+        for triple in typed:
+            self._update_triple(triple["id"], object_type=S.TYPE_CONCEPT, object_status=S.OBJ_CR_FINISHED)
+        if typed:
+            self.db.commit()
+        triples = [t for t in triples if t["predicate_id"] not in self.typing_predicate_ids]
+        if not triples:
+            return True
+        self._current(f"CR: {len(triples)} triple objects")
         language = self.config.language
-        nes = literals = 0
+        recognized = literals = 0
         for triple, output, error in self._fan_out(
-            "ner", triples, lambda t: P.ner_messages(language, t["subject_label"], t["predicate_label"], t["object_label"])
+            "cr", triples, lambda t: P.cr_messages(language, t["subject_label"], t["predicate_label"], t["object_label"])
         ):
             try:
                 if error:
                     raise error
-                is_ne = P.parse_ner(output or "")
+                is_concept = P.parse_cr(output or "")
             except Exception as exc:
                 self._triple_failed(
-                    triple, "ner", str(exc), output,
+                    triple, "cr", str(exc), output,
                     {"object_type": S.TYPE_LITERAL, "object_status": S.OBJ_FINISHED, "resolution": "failed"},
                 )
                 self.db.commit()
                 continue
-            if is_ne:
-                self._update_triple(triple["id"], object_type=S.TYPE_NE, object_status=S.OBJ_NER_FINISHED)
-                nes += 1
+            if is_concept:
+                self._update_triple(triple["id"], object_type=S.TYPE_CONCEPT, object_status=S.OBJ_CR_FINISHED)
+                recognized += 1
             else:
                 self._update_triple(triple["id"], object_type=S.TYPE_LITERAL, object_status=S.OBJ_FINISHED)
                 literals += 1
             self.db.commit()
-        self._log(f"NER: {nes} named entities and {literals} literals among {len(triples)} triple objects.")
+        self._log(f"CR: {recognized} concepts and {literals} literals among {len(triples)} triple objects.")
         return True
 
-    # ---- NED1 (triple-context NED) ----------------------------------------
+    # ---- CD1 (triple-context CD) ----------------------------------------
 
-    def _stage_ned1(self) -> bool:
+    def _stage_cd1(self) -> bool:
         triples = self._rows(
             self.db.execute(
                 "SELECT id, seq, subject_id, subject_label, predicate_id, predicate_label, object_label FROM triples "
-                "WHERE object_type = 'ne' AND object_status = 'ner_finished' ORDER BY seq LIMIT ?",
+                "WHERE object_type = 'concept' AND object_status = 'cr_finished' ORDER BY seq LIMIT ?",
                 (self.config.fetch_size,),
             )
         )
@@ -1135,7 +1143,7 @@ class DisambiguatedKBCRunner:
                 not_cached.append(triple)
         self.db.commit()
         if cached:
-            self._log(f"NED1: {cached} objects resolved from the cache.")
+            self._log(f"CD1: {cached} objects resolved from the cache.")
         if not not_cached:
             return True
 
@@ -1143,20 +1151,20 @@ class DisambiguatedKBCRunner:
         # each cluster only its earliest label is disambiguated this round --
         # all of its triples (one per subject) if that label was already
         # resolved more than `frequency_threshold` times, else just one -- so
-        # synonymous mentions never race each other into duplicate entities.
+        # synonymous mentions never race each other into duplicate concepts.
         by_label: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for triple in not_cached:
             by_label[triple["object_label"]].append(triple)
         labels = list(by_label)
-        ned_counts: dict[str, int] = {}
+        cd_counts: dict[str, int] = {}
         for start in range(0, len(labels), 500):
             chunk = labels[start : start + 500]
             for label, count in self.db.execute(
-                f"SELECT object_label, COUNT(*) FROM triples WHERE object_type = 'ne' AND object_id IS NOT NULL "
+                f"SELECT object_label, COUNT(*) FROM triples WHERE object_type = 'concept' AND object_id IS NOT NULL "
                 f"AND object_label IN ({','.join('?' * len(chunk))}) GROUP BY object_label",
                 chunk,
             ):
-                ned_counts[label] = count
+                cd_counts[label] = count
         label_vectors = self.embedder.embed(labels)
         assignment = cluster_labels(label_vectors, self.config.cluster_distance)
         clusters: dict[int, list[str]] = {}
@@ -1165,7 +1173,7 @@ class DisambiguatedKBCRunner:
         selected: list[dict[str, Any]] = []
         for cluster in clusters.values():
             first = cluster[0]
-            if ned_counts.get(first, 0) > self.config.frequency_threshold:
+            if cd_counts.get(first, 0) > self.config.frequency_threshold:
                 subjects: set[str] = set()
                 for triple in by_label[first]:
                     if triple["subject_id"] not in subjects:
@@ -1175,69 +1183,69 @@ class DisambiguatedKBCRunner:
                 selected.append(by_label[first][0])
 
         for start in range(0, len(selected), self.config.chunk_size):
-            self._ned1_chunk(selected[start : start + self.config.chunk_size])
+            self._cd1_chunk(selected[start : start + self.config.chunk_size])
         return True
 
-    def _ned1_chunk(self, triples: list[dict[str, Any]]) -> None:
-        self._current(f"NED1: {', '.join(t['object_label'] for t in triples[:3])}" + (f" (+{len(triples) - 3} more)" if len(triples) > 3 else ""))
+    def _cd1_chunk(self, triples: list[dict[str, Any]]) -> None:
+        self._current(f"CD1: {', '.join(t['object_label'] for t in triples[:3])}" + (f" (+{len(triples) - 3} more)" if len(triples) > 3 else ""))
         vectors = self.embedder.embed([t["object_label"] for t in triples])
-        neighbor_ids = self.entity_index.search(vectors, self.config.ned_candidates, self.config.ned_similarity_floor)
-        entity_info = self._entity_rows(sorted({i for ids in neighbor_ids for i in ids}))
+        neighbor_ids = self.concept_index.search(vectors, self.config.cd_candidates, self.config.cd_similarity_floor)
+        concept_info = self._concept_rows(sorted({i for ids in neighbor_ids for i in ids}))
         candidates: dict[str, list[str]] = {}
         for triple, ids in zip(triples, neighbor_ids):
-            ids = [i for i in ids if i in entity_info]
+            ids = [i for i in ids if i in concept_info]
             candidates[triple["id"]] = ids
-            self._set_candidates(triple["id"], "ned1", ids)
+            self._set_candidates(triple["id"], "cd1", ids)
         self.db.commit()
 
         for triple in [t for t in triples if not candidates[t["id"]]]:
-            self._update_triple(triple["id"], object_status=S.OBJ_NED1_FINISHED)
+            self._update_triple(triple["id"], object_status=S.OBJ_CD1_FINISHED)
         triples = [t for t in triples if candidates[t["id"]]]
 
         def build(t: dict[str, Any]) -> tuple[str, str]:
             ids = candidates[t["id"]]
-            return P.ned1_messages(
+            return P.cd1_messages(
                 t["subject_label"], t["predicate_label"], t["object_label"],
-                [entity_info[i][0] for i in ids], [entity_info[i][1] for i in ids],
+                [concept_info[i][0] for i in ids], [concept_info[i][1] for i in ids],
             )
 
         merged = new = unsure = 0
-        for triple, output, error in self._fan_out("ned", triples, build):
+        for triple, output, error in self._fan_out("cd", triples, build):
             ids = candidates[triple["id"]]
             context = f"[{triple['subject_label']}, {triple['predicate_label']}, {triple['object_label']}]"
             if error:
-                self._triple_failed(triple, "ned1", str(error), None,
+                self._triple_failed(triple, "cd1", str(error), None,
                                     {"object_status": S.OBJ_FINISHED, "resolution": "failed"})
                 self.db.commit()
                 continue
-            choice = P.parse_choice(output or "", **P.ned_parse_options("ned1", len(ids)))
+            choice = P.parse_choice(output or "", **P.cd_parse_options("cd1", len(ids)))
             if choice == "unsure":
                 self._update_triple(triple["id"], object_status=S.OBJ_FINISHED, resolution="unsure")
-                self._log_decision(triple["id"], "ned1", triple["object_label"], context, ids, output, "unsure", None)
+                self._log_decision(triple["id"], "cd1", triple["object_label"], context, ids, output, "unsure", None)
                 unsure += 1
             elif isinstance(choice, int):
                 if 1 <= choice <= len(ids):
                     chosen = ids[choice - 1]
-                    self._resolve_object(triple, chosen, "ned1")
-                    self._log_decision(triple["id"], "ned1", triple["object_label"], context, ids, output, "merged", chosen)
+                    self._resolve_object(triple, chosen, "cd1")
+                    self._log_decision(triple["id"], "cd1", triple["object_label"], context, ids, output, "merged", chosen)
                     merged += 1
                 else:
-                    self._triple_failed(triple, "ned1", f"answer {output!r} is not one of the {len(ids)} candidates", output,
+                    self._triple_failed(triple, "cd1", f"answer {output!r} is not one of the {len(ids)} candidates", output,
                                         {"object_status": S.OBJ_FINISHED, "resolution": "failed"})
             else:
-                self._update_triple(triple["id"], object_status=S.OBJ_NED1_FINISHED)
-                self._log_decision(triple["id"], "ned1", triple["object_label"], context, ids, output, "none", None)
+                self._update_triple(triple["id"], object_status=S.OBJ_CD1_FINISHED)
+                self._log_decision(triple["id"], "cd1", triple["object_label"], context, ids, output, "none", None)
                 new += 1
             self.db.commit()
-        self._log(f"NED1: {merged} objects matched existing entities, {new} go to description generation, {unsure} unsure.")
+        self._log(f"CD1: {merged} objects matched existing concepts, {new} go to description generation, {unsure} unsure.")
 
-    # ---- NEDG / NED2 (description-context NED) -----------------------------
+    # ---- CDG / CD2 (description-context CD) -----------------------------
 
-    def _stage_nedg(self) -> bool:
+    def _stage_cdg(self) -> bool:
         triples = self._rows(
             self.db.execute(
-                "SELECT id, subject_id, subject_label, predicate_label, object_label FROM triples "
-                "WHERE object_type = 'ne' AND object_status = 'ned_finished1' ORDER BY seq LIMIT ?",
+                "SELECT id, subject_id, subject_label, predicate_id, predicate_label, object_label FROM triples "
+                "WHERE object_type = 'concept' AND object_status = 'cd_finished1' ORDER BY seq LIMIT ?",
                 (max(self.config.chunk_size, self.config.nthreads),),
             )
         )
@@ -1246,59 +1254,59 @@ class DisambiguatedKBCRunner:
         self._current(f"Describing: {', '.join(t['object_label'] for t in triples[:3])}" + (f" (+{len(triples) - 3} more)" if len(triples) > 3 else ""))
         done = 0
         for triple, output, error in self._fan_out(
-            "ned", triples,
-            lambda t: P.nedg_messages(t["subject_label"], t["predicate_label"], t["object_label"], self.config.topic),
+            "cd", triples,
+            lambda t: P.cdg_messages(t["subject_label"], t["predicate_label"], t["object_label"], self.config.topic),
         ):
             try:
                 if error:
                     raise error
                 description = P.parse_description(output or "")
             except Exception as exc:
-                self._triple_failed(triple, "nedg", str(exc), output,
+                self._triple_failed(triple, "cdg", str(exc), output,
                                     {"object_status": S.OBJ_FINISHED, "resolution": "failed"})
                 self.db.commit()
                 continue
             self._update_triple(triple["id"], object_description=description, object_status=S.OBJ_DG_FINISHED)
             self.db.commit()
             done += 1
-        self._log(f"Description generation: {done} new-entity candidates described.")
+        self._log(f"Description generation: {done} new-concept candidates described.")
         return True
 
-    def _stage_ned2(self) -> bool:
+    def _stage_cd2(self) -> bool:
         triples = self._rows(
             self.db.execute(
                 "SELECT id, subject_id, subject_label, predicate_label, object_label, object_description FROM triples "
-                "WHERE object_type = 'ne' AND object_status = 'dg_finished' AND object_description IS NOT NULL "
+                "WHERE object_type = 'concept' AND object_status = 'dg_finished' AND object_description IS NOT NULL "
                 "ORDER BY seq LIMIT ?",
                 (max(self.config.chunk_size, self.config.nthreads),),
             )
         )
         if not triples:
             return False
-        self._current(f"NED2: {', '.join(t['object_label'] for t in triples[:3])}" + (f" (+{len(triples) - 3} more)" if len(triples) > 3 else ""))
-        k = self.config.ned_candidates
+        self._current(f"CD2: {', '.join(t['object_label'] for t in triples[:3])}" + (f" (+{len(triples) - 3} more)" if len(triples) > 3 else ""))
+        k = self.config.cd_candidates
 
-        # Entities whose label -- or, with aliases indexed as in the paper,
+        # Concepts whose label -- or, with aliases indexed as in the paper,
         # one of whose aliases -- is exactly the object label.
         labels = sorted({t["object_label"] for t in triples})
         placeholders = ",".join("?" * len(labels))
         same_label: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
-        for matched, entity_id, label, description in self.db.execute(
-            f"SELECT label, id, label, description FROM entities WHERE label IN ({placeholders}) "
-            f"UNION SELECT a.alias, e.id, e.label, e.description FROM entity_aliases a JOIN entities e "
-            f"ON e.id = a.entity_id WHERE a.alias IN ({placeholders})",
+        for matched, concept_id, label, description in self.db.execute(
+            f"SELECT label, id, label, description FROM concepts WHERE label IN ({placeholders}) "
+            f"UNION SELECT a.alias, e.id, e.label, e.description FROM concept_aliases a JOIN concepts e "
+            f"ON e.id = a.concept_id WHERE a.alias IN ({placeholders})",
             [*labels, *labels],
         ):
-            if all(existing[0] != entity_id for existing in same_label[matched]):
-                same_label[matched].append((entity_id, label, description))
+            if all(existing[0] != concept_id for existing in same_label[matched]):
+                same_label[matched].append((concept_id, label, description))
 
         candidates: dict[str, list[str]] = {}
         info: dict[str, tuple[str, str]] = {}
         dense = [t for t in triples if len(same_label.get(t["object_label"], [])) > k]
         sparse = [t for t in triples if len(same_label.get(t["object_label"], [])) <= k]
 
-        # High-density homonyms (more same-label entities than candidate
-        # slots, e.g. "Faculty of Law"): rank the same-label entities by
+        # High-density homonyms (more same-label concepts than candidate
+        # slots, e.g. "Faculty of Law"): rank the same-label concepts by
         # description similarity.
         for triple in dense:
             group = same_label[triple["object_label"]]
@@ -1309,62 +1317,62 @@ class DisambiguatedKBCRunner:
             for i in order:
                 info[group[i][0]] = (group[i][1], group[i][2])
 
-        # Otherwise: every same-label entity, topped up to k by label similarity.
+        # Otherwise: every same-label concept, topped up to k by label similarity.
         if sparse:
-            neighbor_ids = self.entity_index.search(
-                self.embedder.embed([t["object_label"] for t in sparse]), k, self.config.ned_similarity_floor
+            neighbor_ids = self.concept_index.search(
+                self.embedder.embed([t["object_label"] for t in sparse]), k, self.config.cd_similarity_floor
             )
-            neighbor_info = self._entity_rows(sorted({i for ids in neighbor_ids for i in ids}))
+            neighbor_info = self._concept_rows(sorted({i for ids in neighbor_ids for i in ids}))
             for triple, ids in zip(sparse, neighbor_ids):
                 chosen = [e[0] for e in same_label.get(triple["object_label"], [])]
                 for e in same_label.get(triple["object_label"], []):
                     info[e[0]] = (e[1], e[2])
-                for entity_id in ids:
-                    if entity_id in neighbor_info and entity_id not in chosen and len(chosen) < k:
-                        chosen.append(entity_id)
-                        info[entity_id] = neighbor_info[entity_id]
+                for concept_id in ids:
+                    if concept_id in neighbor_info and concept_id not in chosen and len(chosen) < k:
+                        chosen.append(concept_id)
+                        info[concept_id] = neighbor_info[concept_id]
                 candidates[triple["id"]] = chosen
         for triple in triples:
-            self._set_candidates(triple["id"], "ned2", candidates[triple["id"]])
+            self._set_candidates(triple["id"], "cd2", candidates[triple["id"]])
         self.db.commit()
-        new_entity_triples: list[dict[str, Any]] = [t for t in triples if not candidates[t["id"]]]
+        new_concept_triples: list[dict[str, Any]] = [t for t in triples if not candidates[t["id"]]]
         triples = [t for t in triples if candidates[t["id"]]]
 
         def build(t: dict[str, Any]) -> tuple[str, str]:
             ids = candidates[t["id"]]
-            return P.ned2_messages(t["object_label"], t["object_description"], [info[i][0] for i in ids], [info[i][1] for i in ids])
+            return P.cd2_messages(t["object_label"], t["object_description"], [info[i][0] for i in ids], [info[i][1] for i in ids])
 
         merged = 0
-        for triple, output, error in self._fan_out("ned", triples, build):
+        for triple, output, error in self._fan_out("cd", triples, build):
             ids = candidates[triple["id"]]
             context = triple["object_description"]
             if error:
-                self._triple_failed(triple, "ned2", str(error), None,
+                self._triple_failed(triple, "cd2", str(error), None,
                                     {"object_status": S.OBJ_FINISHED, "resolution": "failed"})
                 self.db.commit()
                 continue
-            choice = P.parse_choice(output or "", **P.ned_parse_options("ned2", len(ids)))
+            choice = P.parse_choice(output or "", **P.cd_parse_options("cd2", len(ids)))
             if isinstance(choice, int):
                 if 1 <= choice <= len(ids):
                     chosen = ids[choice - 1]
-                    self._resolve_object(triple, chosen, "ned2")
-                    self._log_decision(triple["id"], "ned2", triple["object_label"], context, ids, output, "merged", chosen)
+                    self._resolve_object(triple, chosen, "cd2")
+                    self._log_decision(triple["id"], "cd2", triple["object_label"], context, ids, output, "merged", chosen)
                     merged += 1
                 else:
-                    self._triple_failed(triple, "ned2", f"answer {output!r} is not one of the {len(ids)} candidates", output,
+                    self._triple_failed(triple, "cd2", f"answer {output!r} is not one of the {len(ids)} candidates", output,
                                         {"object_status": S.OBJ_FINISHED, "resolution": "failed"})
                 self.db.commit()
             else:
-                self._log_decision(triple["id"], "ned2", triple["object_label"], context, ids, output, "new", None)
-                new_entity_triples.append(triple)
+                self._log_decision(triple["id"], "cd2", triple["object_label"], context, ids, output, "new", None)
+                new_concept_triples.append(triple)
 
-        created = self._commit_new_entities(new_entity_triples)
+        created = self._commit_new_concepts(new_concept_triples)
         self.db.commit()
-        self._log(f"NED2: {merged} objects matched existing entities, {created} new entities added.")
+        self._log(f"CD2: {merged} objects matched existing concepts, {created} new concepts added.")
         return True
 
-    def _commit_new_entities(self, triples: list[dict[str, Any]]) -> int:
-        """New entities for the NED2 "None of above" objects; a (label,
+    def _commit_new_concepts(self, triples: list[dict[str, Any]]) -> int:
+        """New concepts for the CD2 "None of above" objects; a (label,
         description) pair that already exists -- or was just created for an
         earlier triple of the same batch -- is reused instead."""
         if not triples:
@@ -1374,30 +1382,30 @@ class DisambiguatedKBCRunner:
         for triple in triples:
             label, description = triple["object_label"], triple["object_description"]
             existing = self.db.execute(
-                "SELECT id FROM entities WHERE label = ? AND description = ?", (label, description)
+                "SELECT id FROM concepts WHERE label = ? AND description = ?", (label, description)
             ).fetchone()
             if existing:
-                entity_id = existing[0]
-                resolution = "ned2"
+                concept_id = existing[0]
+                resolution = "cd2"
             else:
-                entity_id, seq = self._next_id("E", "next_entity")
-                parent = self.db.execute("SELECT depth FROM entities WHERE id = ?", (triple["subject_id"],)).fetchone()
+                concept_id, seq = self._next_id("C", "next_concept")
+                parent = self.db.execute("SELECT depth FROM concepts WHERE id = ?", (triple["subject_id"],)).fetchone()
                 depth = (parent[0] if parent else 0) + 1
                 self.db.execute(
-                    "INSERT INTO entities (id, seq, label, description, status, depth, first_appeared) "
+                    "INSERT INTO concepts (id, seq, label, description, status, depth, first_appeared) "
                     "VALUES (?, ?, ?, ?, 'unexplored', ?, ?)",
-                    (entity_id, seq, label, description, depth, triple["id"]),
+                    (concept_id, seq, label, description, depth, triple["id"]),
                 )
-                created_ids.append(entity_id)
+                created_ids.append(concept_id)
                 created_labels.append(label)
                 resolution = "new"
-            self._resolve_object(triple, entity_id, resolution)
+            self._resolve_object(triple, concept_id, resolution)
             self.db.execute(
-                "UPDATE decisions SET chosen_id = ? WHERE triple_id = ? AND stage = 'ned2' AND outcome = 'new'",
-                (entity_id, triple["id"]),
+                "UPDATE decisions SET chosen_id = ? WHERE triple_id = ? AND stage = 'cd2' AND outcome = 'new'",
+                (concept_id, triple["id"]),
             )
         if created_ids:
-            self.entity_index.add(created_ids, self.embedder.embed(created_labels))
+            self.concept_index.add(created_ids, self.embedder.embed(created_labels))
         return len(created_ids)
 
     # ---- PD / PDG (relations) ----------------------------------------------
@@ -1405,7 +1413,7 @@ class DisambiguatedKBCRunner:
     def _stage_pd(self) -> bool:
         triples = self._rows(
             self.db.execute(
-                "SELECT id, subject_id, subject_label, predicate_label, object_label FROM triples "
+                "SELECT id, subject_id, subject_label, predicate_id, predicate_label, object_label FROM triples "
                 "WHERE predicate_status = 'generated' ORDER BY seq LIMIT ?",
                 (self.config.fetch_size,),
             )
@@ -1489,7 +1497,7 @@ class DisambiguatedKBCRunner:
                                      [predicate_info[i][0] for i in ids], [predicate_info[i][1] for i in ids])
 
             matched = new = 0
-            for triple, output, error in self._fan_out("ned", chunk, build):
+            for triple, output, error in self._fan_out("cd", chunk, build):
                 ids = candidates[triple["id"]]
                 context = f"[{triple['subject_label']}, {triple['predicate_label']}, {triple['object_label']}]"
                 if error:
@@ -1522,14 +1530,7 @@ class DisambiguatedKBCRunner:
                 "INSERT OR IGNORE INTO predicate_aliases (predicate_id, alias) VALUES (?, ?)",
                 (predicate_id, triple["predicate_label"]),
             )
-        if predicate_id == "P0":
-            # A relation disambiguated to instanceOf makes the object a class.
-            self._update_triple(triple["id"], object_type=S.TYPE_CLASS, object_status=S.OBJ_FINISHED)
-            self.db.execute(
-                "INSERT OR IGNORE INTO instance_triples (triple_id, entity_id, concept_label) VALUES (?, ?, ?)",
-                (triple["id"], triple["subject_id"], triple["object_label"]),
-            )
-        self.dirty_entities.add(triple["subject_id"])
+        self.dirty_concepts.add(triple["subject_id"])
         return True
 
     def _predicate_failed(self, triple: dict[str, Any], stage: str, error: str, detail: str | None) -> None:
@@ -1541,7 +1542,7 @@ class DisambiguatedKBCRunner:
     def _stage_pdg(self) -> bool:
         triples = self._rows(
             self.db.execute(
-                "SELECT id, subject_id, subject_label, predicate_label, object_label FROM triples "
+                "SELECT id, subject_id, subject_label, predicate_id, predicate_label, object_label FROM triples "
                 "WHERE predicate_status = 'pd_finished' ORDER BY seq LIMIT ?",
                 (max(self.config.chunk_size, self.config.nthreads),),
             )
@@ -1551,7 +1552,7 @@ class DisambiguatedKBCRunner:
         self._current(f"Describing relations: {', '.join(t['predicate_label'] for t in triples[:3])}")
         described: list[tuple[dict[str, Any], str]] = []
         for triple, output, error in self._fan_out(
-            "ned", triples, lambda t: P.pdg_messages(t["predicate_label"], self.config.topic)
+            "cd", triples, lambda t: P.pdg_messages(t["predicate_label"], self.config.topic)
         ):
             try:
                 if error:
@@ -1580,7 +1581,7 @@ class DisambiguatedKBCRunner:
         items: list[tuple[dict[str, Any], str, str]],
         assign: Callable[[dict[str, Any], str], Any],
     ) -> int:
-        """New predicates/classes for (item, label, description) triples,
+        """New predicates for (item, label, description) triples,
         reusing an existing element with the same label and description."""
         new_ids, new_labels = [], []
         for item, label, description in items:
@@ -1602,165 +1603,3 @@ class DisambiguatedKBCRunner:
         if new_ids:
             index.add(new_ids, self.embedder.embed(new_labels))
         return len(new_ids)
-
-    # ---- CD / CDG (classes) -------------------------------------------------
-
-    def _stage_cd(self) -> bool:
-        items = self._rows(
-            self.db.execute(
-                "SELECT it.triple_id, it.entity_id, it.concept_label, t.subject_label, t.predicate_label "
-                "FROM instance_triples it JOIN triples t ON t.id = it.triple_id "
-                "WHERE it.status = 'generated' ORDER BY t.seq LIMIT ?",
-                (self.config.fetch_size,),
-            )
-        )
-        if not items:
-            return False
-
-        labels = sorted({i["concept_label"] for i in items})
-        auto_map = {
-            label: concept_id
-            for label, concept_id in self.db.execute(
-                f"SELECT concept_label, concept_id FROM instance_triples WHERE concept_id IS NOT NULL "
-                f"AND concept_label IN ({','.join('?' * len(labels))})",
-                labels,
-            )
-        }
-        mapped = deleted = 0
-        remaining = []
-        for item in items:
-            concept_id = auto_map.get(item["concept_label"])
-            if concept_id is None:
-                remaining.append(item)
-                continue
-            collision = self.db.execute(
-                "SELECT 1 FROM instance_triples WHERE entity_id = ? AND concept_id = ? LIMIT 1",
-                (item["entity_id"], concept_id),
-            ).fetchone()
-            if collision:
-                self._delete_triple(item["triple_id"])
-                deleted += 1
-            else:
-                self._set_concept(item, concept_id)
-                mapped += 1
-        self.db.commit()
-        if mapped or deleted:
-            self._log(f"Class cache: {mapped} classes mapped, {deleted} duplicate class triples removed.")
-        if not remaining:
-            return True
-
-        concept_count = self.db.execute("SELECT COUNT(*) FROM concepts").fetchone()[0]
-        selected, keys = [], set()
-        for item in remaining:
-            label = str(item["concept_label"])
-            key = label.lower().strip() if concept_count > 100 else label[:3].lower().strip()
-            if key not in keys:
-                keys.add(key)
-                selected.append(item)
-
-        for start in range(0, len(selected), self.config.chunk_size):
-            chunk = selected[start : start + self.config.chunk_size]
-            self._current(f"Class disambiguation: {', '.join(i['concept_label'] for i in chunk[:3])}")
-            neighbor_ids = self.concept_index.search(
-                self.embedder.embed([i["concept_label"] for i in chunk]), self.config.num_candidates
-            )
-            all_ids = sorted({i for ids in neighbor_ids for i in ids})
-            concept_info = {
-                row[0]: (row[1], row[2])
-                for row in self.db.execute(
-                    f"SELECT id, label, description FROM concepts WHERE id IN ({','.join('?' * len(all_ids))})", all_ids
-                )
-            } if all_ids else {}
-            candidates = {i["triple_id"]: [c for c in ids if c in concept_info] for i, ids in zip(chunk, neighbor_ids)}
-            for item in chunk:
-                self._set_candidates(item["triple_id"], "cd", candidates[item["triple_id"]])
-                if not candidates[item["triple_id"]]:
-                    self.db.execute(
-                        "UPDATE instance_triples SET status = 'cd_finished' WHERE triple_id = ?", (item["triple_id"],)
-                    )
-            self.db.commit()
-            chunk = [i for i in chunk if candidates[i["triple_id"]]]
-
-            def build(i: dict[str, Any]) -> tuple[str, str]:
-                ids = candidates[i["triple_id"]]
-                return P.cd_messages(i["subject_label"], i["predicate_label"], i["concept_label"],
-                                     [concept_info[c][0] for c in ids], [concept_info[c][1] for c in ids])
-
-            matched = new = 0
-            for item, output, error in self._fan_out("ned", chunk, build):
-                ids = candidates[item["triple_id"]]
-                context = f"[{item['subject_label']}, {item['predicate_label']}, {item['concept_label']}]"
-                if error:
-                    self._concept_failed(item, "cd", str(error), None)
-                    self.db.commit()
-                    continue
-                choice = P.parse_choice(output or "", "A-G")
-                if isinstance(choice, int):
-                    if 1 <= choice <= len(ids):
-                        chosen = ids[choice - 1]
-                        self._set_concept(item, chosen)
-                        self._log_decision(item["triple_id"], "cd", item["concept_label"], context, ids, output, "merged", chosen)
-                        matched += 1
-                    else:
-                        self._concept_failed(item, "cd", f"answer {output!r} is not one of the {len(ids)} candidates", output)
-                else:
-                    self.db.execute(
-                        "UPDATE instance_triples SET status = 'cd_finished' WHERE triple_id = ?", (item["triple_id"],)
-                    )
-                    self._log_decision(item["triple_id"], "cd", item["concept_label"], context, ids, output, "none", None)
-                    new += 1
-                self.db.commit()
-            self._log(f"Class disambiguation: {matched} matched existing classes, {new} need a new class.")
-        return True
-
-    def _set_concept(self, item: dict[str, Any], concept_id: str) -> None:
-        self.db.execute(
-            "UPDATE instance_triples SET concept_id = ?, status = 'finished' WHERE triple_id = ?",
-            (concept_id, item["triple_id"]),
-        )
-        label = self.db.execute("SELECT label FROM concepts WHERE id = ?", (concept_id,)).fetchone()
-        if label and label[0] != item["concept_label"]:
-            self.db.execute(
-                "INSERT OR IGNORE INTO concept_aliases (concept_id, alias) VALUES (?, ?)", (concept_id, item["concept_label"])
-            )
-        self.dirty_entities.add(item["entity_id"])
-
-    def _concept_failed(self, item: dict[str, Any], stage: str, error: str, detail: str | None) -> None:
-        if self._attempt_failed("instance_triples", "triple_id", item["triple_id"], stage, item["concept_label"], error):
-            self.db.execute(
-                "UPDATE instance_triples SET status = 'cd_finished', attempts = 0 WHERE triple_id = ?", (item["triple_id"],)
-            )
-            self._record_failure(item["concept_label"], stage, error, detail)
-
-    def _stage_cdg(self) -> bool:
-        items = self._rows(
-            self.db.execute(
-                "SELECT triple_id, entity_id, concept_label FROM instance_triples WHERE status = 'cd_finished' "
-                "ORDER BY rowid LIMIT ?",
-                (max(self.config.chunk_size, self.config.nthreads),),
-            )
-        )
-        if not items:
-            return False
-        self._current(f"Describing classes: {', '.join(i['concept_label'] for i in items[:3])}")
-        described: list[tuple[dict[str, Any], str]] = []
-        for item, output, error in self._fan_out(
-            "ned", items, lambda i: P.cdg_messages(i["concept_label"], self.config.topic)
-        ):
-            try:
-                if error:
-                    raise error
-                described.append((item, P.parse_description(output or "")))
-            except Exception as exc:
-                if self._attempt_failed("instance_triples", "triple_id", item["triple_id"], "cdg", item["concept_label"], str(exc)):
-                    described.append((item, f"The class of {item['concept_label']}."))
-                    self._record_failure(item["concept_label"], "cdg", str(exc), output)
-                self.db.commit()
-        created = self._commit_new_elements(
-            "concepts", "C", "next_concept", self.concept_index,
-            [(i, i["concept_label"], d) for i, d in described],
-            lambda i, element_id: self._set_concept(i, element_id),
-        )
-        self.db.commit()
-        self._log(f"Class description generation: {created} new classes.")
-        return True

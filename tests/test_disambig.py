@@ -22,6 +22,7 @@ from app.disambig import prompts as P
 from app.disambig.embeddings import EMBEDDING_DIM, EmbeddingClient, VectorIndex, cluster_labels
 from app.disambig.runner import DisambigConfig, DisambiguatedKBCRunner, LLMClient
 from app.llm_errors import ContextWindowExceeded
+from app.runner import PROMPT_LANGUAGES, build_elicitation_prompt_body
 
 # No real model endpoint is ever called: reasoning-capability probing
 # (app/reasoning.py, tested in test_reasoning.py) is switched off here.
@@ -38,8 +39,11 @@ def tearDownModule():
 # What the fake model "knows": subject label -> facts. Two different Munichs:
 # the film (object of notableWork) and the city (object of hasCity/livesIn).
 WORLD = {
+    ("actor", None): [("subClassOf", "performer"), ("practices", "acting")],
+    ("acting", None): [("subClassOf", "performing art"), ("practitioner", "actor"), ("website", "https://example.com/acting")],
+    ("performer", None): [("subClassOf", "person")],
     ("Mathieu Amalric", None): [
-        ("instanceOf", "actor"), ("notableWork", "Munich"), ("placeOfBirth", "Neuilly-sur-Seine"), ("birthYear", "1965"),
+        ("instanceOf", "actor"), ("notableWork", "Munich"), ("placeOfBirth", "Neuilly-sur-Seine"), ("birthYear", "1965"), ("field", "acting"), ("profession", "actor"),
     ],
     ("Munich", "film"): [("instanceOf", "film"), ("director", "Steven Spielberg"), ("releaseYear", "2005")],
     ("Munich", "city"): [("instanceOf", "city"), ("country", "Federal Republic of Germany"), ("population", "1.5 million")],
@@ -51,7 +55,7 @@ WORLD = {
     ("Germany", None): [("instanceOf", "country"), ("hasCity", "Munich"), ("capital", "Berlin")],
     ("Paris", None): [("instanceOf", "city"), ("country", "France")],
 }
-# Synonyms the fake NED accepts as the same entity.
+# Synonyms the fake CD accepts as the same concept.
 SAME = {frozenset({"Germany", "Federal Republic of Germany"})}
 CITY_PREDICATES = {"hasCity", "capital", "nearCity", "placeOfBirth", "born in"}
 FILM_PREDICATES = {"notableWork", "directed"}
@@ -67,7 +71,7 @@ def kind_for(predicate: str) -> str:
     return "thing"
 
 
-def same_entity(a: str, b: str) -> bool:
+def same_concept(a: str, b: str) -> bool:
     return a == b or frozenset({a, b}) in SAME
 
 
@@ -96,34 +100,34 @@ class FakeLLM:
             kind = "film" if "film" in description else "city" if "city" in description else None
             facts = WORLD.get((label, kind)) or WORLD.get((label, None)) or []
             return json.dumps([{"s": label, "p": p, "o": o} for p, o in facts])
-        if system == P.NER_SYSTEM:
-            self.count("ner")
+        if system == P.CR_SYSTEM:
+            self.count("cr")
             phrase = re.search(r"Phrase: (.*) \| Statement", user).group(1)
-            is_ne = phrase[:1].isupper() and not phrase[:1].isdigit()
-            return json.dumps({"phrase": phrase, "is_ne": is_ne})
-        if system == P.NED1_SYSTEM:
-            self.count("ned1")
-            target = re.search(r"Target entity: (.*)", user).group(1)
+            is_concept = bool(phrase) and not phrase[:1].isdigit() and not phrase.startswith("https://")
+            return json.dumps({"phrase": phrase, "is_concept": is_concept})
+        if system == P.CD1_SYSTEM:
+            self.count("cd1")
+            target = re.search(r"Target concept: (.*)", user).group(1)
             predicate = re.search(r"Context triple: \[.*?, (.*?), ", user).group(1)
             for index, (label, description) in enumerate(options(user)):
-                if same_entity(label, target) and (kind_for(predicate) in description or kind_for(predicate) == "thing"):
+                if same_concept(label, target) and (kind_for(predicate) in description or kind_for(predicate) == "thing"):
                     return chr(65 + index)
             return none_letter(user)
-        if system.startswith(P.NEDG_SYSTEM):
-            self.count("nedg")
-            entity = re.search(r"Entity: (.*)", user).group(1)
+        if system.startswith(P.CDG_SYSTEM):
+            self.count("cdg")
+            concept = re.search(r"Concept: (.*)", user).group(1)
             predicate = re.search(r"Triple: \[.*?, (.*?), ", user).group(1)
-            return f"Description: {entity} is a {kind_for(predicate)}."
-        if system == P.NED2_SYSTEM:
-            self.count("ned2")
-            target = re.search(r"Target entity: (.*)", user).group(1)
-            target_description = re.search(r"Target entity description: (.*)", user).group(1)
+            return f"Description: {concept} is a {kind_for(predicate)}."
+        if system == P.CD2_SYSTEM:
+            self.count("cd2")
+            target = re.search(r"Target concept: (.*)", user).group(1)
+            target_description = re.search(r"Target concept description: (.*)", user).group(1)
             for index, (label, description) in enumerate(options(user)):
-                if same_entity(label, target) and description.split(" is a ")[-1] == target_description.split(" is a ")[-1]:
+                if same_concept(label, target) and description.split(" is a ")[-1] == target_description.split(" is a ")[-1]:
                     return chr(65 + index)
             return none_letter(user)
-        if system in (P.PD_SYSTEM, P.CD_SYSTEM):
-            self.count("pd" if system == P.PD_SYSTEM else "cd")
+        if system == P.PD_SYSTEM:
+            self.count("pd")
             target = re.search(r"Target (?:predicate|class): (.*)", user).group(1)
             for index, (label, _) in enumerate(options(user)):
                 if label.lower() == target.lower():
@@ -132,10 +136,7 @@ class FakeLLM:
         if system.startswith(P.PDG_SYSTEM):
             self.count("pdg")
             return f"Indicates the relation {re.search(r'Predicate: (.*)', user).group(1)}."
-        if system.startswith(P.CDG_SYSTEM):
-            self.count("cdg")
-            return f"Description: The class of all {re.search(r'Class: (.*)', user).group(1)}s."
-        # Seed description (adapted NEDG prompt).
+        # Seed description (adapted CDG prompt).
         self.count("seed")
         return "Description: Mathieu Amalric is a French actor and film director."
 
@@ -160,7 +161,7 @@ class RunnerTest(unittest.TestCase):
         (run_dir / "runConfig.json").write_text("{}")
         config = DisambigConfig(
             llm_url="http://fake/v1", api_key="x", model="fake", topic="French cinema",
-            seed_entity="Mathieu Amalric", nthreads=4, **overrides,
+            seed_concept=overrides.pop("seed_concept", "Mathieu Amalric"), nthreads=4, **overrides,
         )
         events = []
         fake = FakeLLM()
@@ -180,7 +181,7 @@ class RunnerTest(unittest.TestCase):
         statuses = [e["status"] for e in events if e["type"] == "status"]
         self.assertEqual(statuses[-1], "finished")
 
-        munichs = db.execute("SELECT id, description FROM entities WHERE label = 'Munich'").fetchall()
+        munichs = db.execute("SELECT id, description FROM concepts WHERE label = 'Munich'").fetchall()
         self.assertEqual(len(munichs), 2, munichs)
         self.assertEqual({"film" in d for _, d in munichs}, {True, False})
 
@@ -192,14 +193,14 @@ class RunnerTest(unittest.TestCase):
             db.execute("SELECT object_id FROM triples WHERE predicate_label = 'hasCity'").fetchone()[0], city_id
         )
 
-        # Germany and "Federal Republic of Germany" are one entity with an alias.
-        germanies = db.execute("SELECT id FROM entities WHERE label LIKE '%Germany%'").fetchall()
+        # Germany and "Federal Republic of Germany" are one concept with an alias.
+        germanies = db.execute("SELECT id FROM concepts WHERE label LIKE '%Germany%'").fetchall()
         self.assertEqual(len(germanies), 1, germanies)
-        aliases = {r[0] for r in db.execute("SELECT alias FROM entity_aliases WHERE entity_id = ?", germanies[0])}
+        aliases = {r[0] for r in db.execute("SELECT alias FROM concept_aliases WHERE concept_id = ?", germanies[0])}
         self.assertEqual(aliases, {"Federal Republic of Germany"})
 
         # One Paris, referenced from three subjects.
-        self.assertEqual(db.execute("SELECT COUNT(*) FROM entities WHERE label = 'Paris'").fetchone()[0], 1)
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM concepts WHERE label = 'Paris'").fetchone()[0], 1)
 
         # Everything is resolved; literals stay literals; classes resolved.
         self.assertEqual(
@@ -207,16 +208,15 @@ class RunnerTest(unittest.TestCase):
             0,
         )
         self.assertEqual(db.execute("SELECT object_type FROM triples WHERE object_label = '1965'").fetchone()[0], "literal")
-        self.assertEqual(db.execute("SELECT COUNT(*) FROM instance_triples WHERE status != 'finished'").fetchone()[0], 0)
         self.assertEqual(db.execute("SELECT COUNT(*) FROM concepts WHERE label = 'city'").fetchone()[0], 1)
         # instanceOf is the seed predicate P0; there is no seed class, the
         # first class is created without asking the LLM about zero candidates.
         self.assertEqual(db.execute("SELECT COUNT(*) FROM concepts WHERE label = 'human'").fetchone()[0], 1)
-        self.assertEqual(db.execute("SELECT label FROM concepts WHERE id = 'C0'").fetchone()[0], "actor")
+        self.assertEqual(db.execute("SELECT label FROM concepts WHERE id = 'C0'").fetchone()[0], "Mathieu Amalric")
         self.assertEqual(db.execute("SELECT predicate_id FROM triples WHERE predicate_label = 'instanceOf' LIMIT 1").fetchone()[0], "P0")
-        # Every entity reachable in the toy world was explored, and depth is tracked.
-        self.assertEqual(db.execute("SELECT COUNT(*) FROM entities WHERE status = 'unexplored'").fetchone()[0], 0)
-        self.assertEqual(db.execute("SELECT depth FROM entities WHERE id = ?", (film_id,)).fetchone()[0], 1)
+        # Every concept reachable in the toy world was explored, and depth is tracked.
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM concepts WHERE status = 'unexplored'").fetchone()[0], 0)
+        self.assertEqual(db.execute("SELECT depth FROM concepts WHERE id = ?", (film_id,)).fetchone()[0], 1)
 
         html = run_dir / "html"
         self.assertTrue((html / "index.html").exists())
@@ -225,23 +225,66 @@ class RunnerTest(unittest.TestCase):
         self.assertTrue((run_dir / "triples.jsonl").exists())
         self.assertEqual(db.execute("SELECT status FROM run").fetchone()[0], "finished")
 
+    def test_general_concepts_share_identity_and_expand(self):
+        run_dir, _, _ = self.run_pipeline()
+        with sqlite3.connect(run_dir / "knowledgeBase.db") as db:
+            actor = db.execute("SELECT id, status, depth FROM concepts WHERE label = 'actor'").fetchall()
+            self.assertEqual(len(actor), 1)
+            actor_id, status, depth = actor[0]
+            self.assertEqual(status, "explored")
+            self.assertEqual(depth, 1)
+            actor_refs = db.execute("SELECT DISTINCT object_id FROM triples WHERE object_label = 'actor'").fetchall()
+            self.assertEqual(actor_refs, [(actor_id,)])
+            self.assertEqual(db.execute("SELECT status FROM concepts WHERE label = 'acting'").fetchone()[0], "explored")
+            self.assertEqual(db.execute("SELECT status FROM concepts WHERE label = 'performer'").fetchone()[0], "explored")
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM triples WHERE object_type NOT IN ('concept', 'literal')").fetchone()[0], 0)
+            self.assertEqual(db.execute("SELECT object_type FROM triples WHERE object_label LIKE 'https://%'").fetchone()[0], "literal")
+            self.assertEqual(db.execute("SELECT predicate_id FROM triples WHERE predicate_label = 'subClassOf' LIMIT 1").fetchone()[0], "P1")
+        exported = [json.loads(line) for line in (run_dir / "triples.jsonl").read_text().splitlines()]
+        self.assertTrue(any(t["p"] == "instanceOf" and t["o_id"] == actor_id and t["o_type"] == "concept" for t in exported))
+        self.assertTrue((run_dir / "html" / f"{actor_id}.html").exists())
+
+    def test_general_concept_synonyms_merge_but_subclasses_do_not(self):
+        world = {
+            ("Mathieu Amalric", None): [("studies", "machine learning"), ("knows", "Bob")],
+            ("Bob", None): [("uses", "ML"), ("studies", "deep learning")],
+            ("deep learning", None): [("subClassOf", "machine learning")],
+        }
+        with mock.patch.dict(WORLD, world, clear=True), mock.patch.dict(
+            globals(), SAME={frozenset({"machine learning", "ML"})}
+        ):
+            run_dir, _, _ = self.run_pipeline()
+        with sqlite3.connect(run_dir / "knowledgeBase.db") as db:
+            ids = {row[0] for row in db.execute("SELECT object_id FROM triples WHERE object_label IN ('machine learning', 'ML')")}
+            self.assertEqual(len(ids), 1)
+            deep = db.execute("SELECT id FROM concepts WHERE label = 'deep learning'").fetchone()[0]
+            self.assertNotIn(deep, ids)
+            self.assertEqual(db.execute("SELECT object_id FROM triples WHERE subject_id = ? AND predicate_label = 'subClassOf'", (deep,)).fetchone()[0], next(iter(ids)))
+
+    def test_general_concept_can_be_the_seed(self):
+        with mock.patch.dict(WORLD, {('gravity', None): [('subClassOf', 'fundamental interaction')]}):
+            run_dir, _, _ = self.run_pipeline(seed_concept='gravity')
+        with sqlite3.connect(run_dir / 'knowledgeBase.db') as db:
+            self.assertEqual(db.execute("SELECT label, status FROM concepts WHERE id = 'C0'").fetchone(), ('gravity', 'explored'))
+            self.assertEqual(db.execute("SELECT status FROM concepts WHERE label = 'fundamental interaction'").fetchone()[0], 'explored')
+
     def test_similarity_floor_blocks_dissimilar_merges(self):
         # "Federal Republic of Germany" is not similar enough to "Germany" to
-        # be offered as a candidate at a floor of 0.99, so it becomes its own entity.
-        run_dir, events, _ = self.run_pipeline(ned_similarity_floor=0.99)
+        # be offered as a candidate at a floor of 0.99, so it becomes its own concept.
+        run_dir, events, _ = self.run_pipeline(cd_similarity_floor=0.99)
         db = sqlite3.connect(run_dir / "knowledgeBase.db")
-        labels = {r[0] for r in db.execute("SELECT label FROM entities")}
+        labels = {r[0] for r in db.execute("SELECT label FROM concepts")}
         self.assertIn("Federal Republic of Germany", labels)
         self.assertIn("Germany", labels)
         # Identical labels are still merged: one Paris, one France.
-        self.assertEqual(db.execute("SELECT COUNT(*) FROM entities WHERE label = 'Paris'").fetchone()[0], 1)
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM concepts WHERE label = 'Paris'").fetchone()[0], 1)
         self.assertEqual([e["status"] for e in events if e["type"] == "status"][-1], "finished")
 
     def test_more_than_five_candidates(self):
-        run_dir, _, _ = self.run_pipeline(ned_candidates=7)
+        run_dir, _, _ = self.run_pipeline(cd_candidates=7)
         db = sqlite3.connect(run_dir / "knowledgeBase.db")
-        self.assertEqual(db.execute("SELECT COUNT(*) FROM entities WHERE label = 'Munich'").fetchone()[0], 2)
-        self.assertEqual(db.execute("SELECT COUNT(*) FROM entities WHERE label LIKE '%Germany%'").fetchone()[0], 1)
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM concepts WHERE label = 'Munich'").fetchone()[0], 2)
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM concepts WHERE label LIKE '%Germany%'").fetchone()[0], 1)
         self.assertEqual(
             db.execute("SELECT COUNT(*) FROM triples WHERE object_status != 'finished'").fetchone()[0], 0
         )
@@ -249,9 +292,9 @@ class RunnerTest(unittest.TestCase):
     def test_bfs_depth_limit(self):
         run_dir, _, _ = self.run_pipeline(max_bfs_depth=1)
         db = sqlite3.connect(run_dir / "knowledgeBase.db")
-        explored_depths = {r[0] for r in db.execute("SELECT depth FROM entities WHERE status = 'explored'")}
+        explored_depths = {r[0] for r in db.execute("SELECT depth FROM concepts WHERE status = 'explored'")}
         self.assertEqual(explored_depths, {0, 1})
-        self.assertGreater(db.execute("SELECT COUNT(*) FROM entities WHERE depth = 2").fetchone()[0], 0)
+        self.assertGreater(db.execute("SELECT COUNT(*) FROM concepts WHERE depth = 2").fetchone()[0], 0)
         self.assertEqual(
             db.execute("SELECT COUNT(*) FROM triples WHERE object_status != 'finished'").fetchone()[0], 0
         )
@@ -272,7 +315,7 @@ class RunnerTest(unittest.TestCase):
         run_dir.mkdir()
         (run_dir / "runConfig.json").write_text("{}")
         config = DisambigConfig(llm_url="http://fake/v1", api_key="x", model="fake", topic="French cinema",
-                                seed_entity="Mathieu Amalric", max_entities=3)
+                                seed_concept="Mathieu Amalric", max_concepts=3)
         events = []
         originals = (LLMClient.chat, EmbeddingClient._request)
         LLMClient.chat = chat
@@ -287,7 +330,7 @@ class RunnerTest(unittest.TestCase):
         def too_long(user, fake):
             raise ContextWindowExceeded("the prompt does not fit the context window of fake")
         db, events, calls = self.run_with_elicitation(too_long)
-        self.assertEqual(len(calls), 1)  # neither the request nor the entity is tried again
+        self.assertEqual(len(calls), 1)  # neither the request nor the concept is tried again
         self.assertEqual(db.execute("SELECT stage FROM failures").fetchall(), [("context_window",)])
         logs = [e["message"] for e in events if e["type"] == "log"]
         self.assertTrue(any("larger context window" in m for m in logs))
@@ -305,7 +348,7 @@ class RunnerTest(unittest.TestCase):
         before = db.execute("SELECT COUNT(*) FROM triples").fetchone()[0]
         db.close()
         config = DisambigConfig(llm_url="http://fake/v1", api_key="x", model="fake", topic="French cinema",
-                                seed_entity="Mathieu Amalric")
+                                seed_concept="Mathieu Amalric")
         fake = FakeLLM()
         originals = (LLMClient.chat, EmbeddingClient._request)
         LLMClient.chat = lambda self, role, system, user, max_retries=5: fake(role, system, user)
@@ -322,7 +365,7 @@ class RunnerTest(unittest.TestCase):
 class UnitTest(unittest.TestCase):
     def test_parse_choice(self):
         self.assertEqual(P.parse_choice("B"), 2)
-        self.assertEqual(P.parse_choice("B. Entity: Munich"), 2)
+        self.assertEqual(P.parse_choice("B. Concept: Munich"), 2)
         self.assertIsNone(P.parse_choice("F"))
         self.assertIsNone(P.parse_choice("A or B"))  # ambiguous -> treated as none
         self.assertEqual(P.parse_choice("G", unsure=True), "unsure")
@@ -336,16 +379,27 @@ class UnitTest(unittest.TestCase):
         self.assertEqual(mini, gptkb)
         self.assertEqual(P.parse_elicitation("Sure! [] "), [])
 
-    def test_parse_ner_and_description(self):
-        self.assertTrue(P.parse_ner('{"phrase": "Paris", "is_ne": true}'))
-        self.assertFalse(P.parse_ner('{"phrase": "1965", "is_ne": "false"}'))
+    def test_parse_cr_and_description(self):
+        self.assertTrue(P.parse_cr('{"phrase": "Paris", "is_concept": true}'))
+        self.assertFalse(P.parse_cr('{"phrase": "1965", "is_concept": "false"}'))
         self.assertEqual(P.parse_description("Description: A city."), "A city.")
+        for value in ('null', '1', '[]', '{}'):
+            with self.assertRaises(P.ParsingError):
+                P.parse_cr('{"is_concept": ' + value + '}')
+
+    def test_all_prompt_languages_allow_concepts_and_both_typing_relations(self):
+        for language, rules in PROMPT_LANGUAGES.items():
+            with self.subTest(language=language):
+                prompt = build_elicitation_prompt_body(language, 'physics', 1, 'open', '')
+                self.assertIn(rules['rule_concept'], prompt)
+                self.assertIn('instanceOf', prompt)
+                self.assertIn('subClassOf', prompt)
 
     def test_language_adaptations(self):
         self.assertIn("istanzaDi", P.instance_of_labels("it"))
-        self.assertIn("english named entity", P.ner_system_prompt("en"))
-        self.assertNotIn("english", P.ner_system_prompt("de"))
-        self.assertNotIn("Latin script", P.ner_system_prompt("de"))
+        self.assertIn("general classes", P.cr_system_prompt("en"))
+        self.assertNotIn("english", P.cr_system_prompt("de"))
+        self.assertNotIn("Latin script", P.cr_system_prompt("de"))
 
     def test_clustering_matches_threshold(self):
         vectors = np.stack(fake_embeddings(["Munich", "Munich ", "München", "Paris"]))
@@ -392,9 +446,9 @@ class EndpointRoutingTest(unittest.TestCase):
         from types import SimpleNamespace
 
         config = DisambigConfig(
-            llm_url="https://api.openai.com/v1", api_key="sk-user", model="gpt-5.4-mini", topic="t", seed_entity="s",
-            ner_model="google/gemma-4-26B-A4B-it", ner_llm_url="https://llm.scads.ai/v1", ner_api_key="scads-shared",
-            ned_model="Qwen/Qwen3.8-27B", ned_llm_url="https://llm.scads.ai/v1", ned_api_key="scads-shared",
+            llm_url="https://api.openai.com/v1", api_key="sk-user", model="gpt-5.4-mini", topic="t", seed_concept="s",
+            cr_model="google/gemma-4-26B-A4B-it", cr_llm_url="https://llm.scads.ai/v1", cr_api_key="scads-shared",
+            cd_model="Qwen/Qwen3.8-27B", cd_llm_url="https://llm.scads.ai/v1", cd_api_key="scads-shared",
         )
         client = LLMClient(config, threading.Event(), lambda message, level: None)
         self.assertEqual(len(client.endpoints), 2)
@@ -413,13 +467,13 @@ class EndpointRoutingTest(unittest.TestCase):
 
         for endpoint in client.endpoints.values():
             endpoint.client = fake_endpoint(endpoint)
-        for role in ("elicitation", "ner", "ned"):
+        for role in ("elicitation", "cr", "cd"):
             client.chat(role, "system", "user")
         self.assertEqual(calls[0][:3], ("https://api.openai.com/v1", "sk-user", "gpt-5.4-mini"))
         self.assertFalse(calls[0][3])  # no temperature for OpenAI's GPT-5 models
         self.assertEqual(calls[1][:3], ("https://llm.scads.ai/v1", "scads-shared", "google/gemma-4-26B-A4B-it"))
         self.assertEqual(calls[2][:3], ("https://llm.scads.ai/v1", "scads-shared", "Qwen/Qwen3.8-27B"))
         self.assertTrue(calls[1][3])
-        self.assertEqual(client.model_label("ned"), "Qwen/Qwen3.8-27B (llm.scads.ai)")
+        self.assertEqual(client.model_label("cd"), "Qwen/Qwen3.8-27B (llm.scads.ai)")
         self.assertTrue(client.cost_tracked())  # the OpenAI part is priced, ScaDS is free
         self.assertTrue(client.has_pricing())

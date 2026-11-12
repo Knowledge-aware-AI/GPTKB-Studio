@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from app import server
 
 SHARED_KEY_RUN = {
-    "llm_url": "https://llm.scads.ai/v1", "api_key": "", "model": "m", "topic": "t", "seed_entity": "s",
+    "llm_url": "https://llm.scads.ai/v1", "api_key": "", "model": "m", "topic": "t", "seed_concept": "s",
 }
 OWN_KEY_RUN = {**SHARED_KEY_RUN, "llm_url": "https://api.openai.com/v1", "api_key": "sk-own"}
 
@@ -124,7 +124,7 @@ class RunSettingsTest(SiteTestCase):
         (run_dir / "runConfig.json").write_text(json.dumps(config))
         settings = self.client.get("/api/runs/r1/settings").json()
         self.assertEqual(settings["topic"], "t")
-        self.assertEqual(settings["seed_entity"], "s")
+        self.assertEqual(settings["seed_concept"], "s")
         for field in ("api_key", "started_at", "folder_id"):
             self.assertNotIn(field, settings)
         self.assertEqual(self.client.get("/api/runs/nope/settings").status_code, 404)

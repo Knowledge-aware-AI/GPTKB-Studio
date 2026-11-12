@@ -114,7 +114,7 @@ class EmbeddingClient:
 
 class VectorIndex:
     """Exact cosine (inner product of unit vectors) top-k search over the
-    label embeddings of one element kind (entities, predicates or classes)."""
+    label embeddings of one element kind (concepts or predicates)."""
 
     def __init__(self) -> None:
         self.ids: list[str] = []
@@ -171,7 +171,7 @@ def cluster_labels(vectors: np.ndarray, distance_threshold: float = 0.15) -> lis
     """Average-linkage agglomerative clustering on cosine distance, cut at
     `distance_threshold` -- the same clustering GPTKB 2.0 does with
     sklearn's AgglomerativeClustering(metric="cosine", linkage="average",
-    distance_threshold=0.15) for its guarded NED parallelization."""
+    distance_threshold=0.15) for its guarded CD parallelization."""
     if len(vectors) <= 1:
         return [0] * len(vectors)
     from scipy.cluster.hierarchy import fcluster, linkage

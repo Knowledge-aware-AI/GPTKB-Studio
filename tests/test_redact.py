@@ -36,7 +36,7 @@ class RunEventsTest(unittest.TestCase):
 
         events = ListQueue()
         config = {"pipeline": "gptkb2", "llm_url": "https://example.org/v1", "api_key": KEY, "model": "m",
-                  "topic": "t", "seed_entity": "s", "embedding_api_key": "shared-embedding-key"}
+                  "topic": "t", "seed_concept": "s", "embedding_api_key": "shared-embedding-key"}
         with mock.patch.object(server, "DisambiguatedKBCRunner", EchoingRunner):
             server._run_process_entry(config, "/tmp", events, None, None)
         self.assertEqual(events[0]["message"], "401 Incorrect API key provided: ***")
