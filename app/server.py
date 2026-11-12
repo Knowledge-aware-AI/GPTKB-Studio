@@ -71,8 +71,8 @@ SCADS_ENDPOINT = "https://llm.scads.ai/v1"
 # whenever a request doesn't supply its own -- never sent to the frontend,
 # never persisted in a run's config (see _safe_run_config), and only ever
 # used for requests actually targeting SCADS_ENDPOINT. Read from the
-# environment (on the server: /etc/minigptkb/env, loaded by the systemd
-# unit) so it isn't in the source code.
+# environment (e.g. an environment file loaded by the systemd unit, see
+# deploy/) so it isn't in the source code.
 DEFAULT_SCADS_API_KEY = os.environ.get("SCADS_API_KEY", "").strip()
 if not DEFAULT_SCADS_API_KEY:
     logging.getLogger("uvicorn.error").warning(

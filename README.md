@@ -114,13 +114,23 @@ downloaded.
 
 | Path | Contents |
 |---|---|
-| `app/server.py` | FastAPI server: REST API, run processes, event stream, run list and folders, downloads |
-| `app/disambig/` | The disambiguation pipeline: runner, prompts and answer parsers, SQLite schema, embeddings, pacing, HTML report |
-| `app/runner.py` | The original string-identity crawler |
+| `app/server.py` | FastAPI server: REST API, run processes, event stream, run list and folders, per-site limits, downloads |
+| `app/disambig/` | The disambiguation pipeline: runner (`runner.py`), prompts and answer parsers (`prompts.py`, `prompts/`), SQLite schema (`store.py`), embeddings and candidate retrieval (`embeddings.py`), pacing below rate limits (`throttle.py`), HTML report (`report.py`, `assets/`) |
+| `app/runner.py` | The original string-identity crawler, and shared prompt building and pricing |
+| `app/endpoints.py` | Refuses model endpoints on private, loopback or link-local addresses, for every request including redirects |
+| `app/reasoning.py` | Finds out which reasoning controls (on/off, effort levels) a model has, by probing it |
+| `app/heartbeat.py` | Status lines in the log while a run waits for model answers, and warnings about slow requests |
+| `app/llm_errors.py` | Recognizes prompts or answers that exceed a model's context window |
+| `app/redact.py` | Removes API keys from log lines and failure records |
 | `app/usage.py` | Per-run counts of model calls and tokens (`usage.json`) |
-| `app/static/` | The browser application (plain JavaScript, no build step) |
+| `app/static/` | The browser application (plain JavaScript, no build step) and the legal pages |
 | `app/vendor/` | vis-network, for the graph view |
+| `deploy/` | Example systemd unit and environment file for a hosted instance |
 | `tests/` | Unit tests: `python -m unittest discover -s tests` |
+
+## Citation
+
+TBA
 
 ## License
 

@@ -23,12 +23,12 @@ class CheckUrlTest(unittest.TestCase):
                 self.assertRefused(url)
 
     def test_other_schemes_are_refused(self):
-        for url in ("file:///etc/passwd", "ftp://141.76.18.84/", "llm.scads.ai/v1", ""):
+        for url in ("file:///etc/passwd", "ftp://1.1.1.1/", "llm.scads.ai/v1", ""):
             with self.subTest(url=url):
                 self.assertRefused(url)
 
     def test_public_address_is_allowed(self):
-        endpoints.check_url("https://141.76.18.84/v1")
+        endpoints.check_url("https://1.1.1.1/v1")
 
     def test_can_be_turned_off(self):
         with mock.patch.object(endpoints, "ALLOW_PRIVATE", True):
@@ -37,14 +37,14 @@ class CheckUrlTest(unittest.TestCase):
     def test_every_request_is_checked(self):
         """Also the target of a redirect from a public endpoint."""
         def handler(request):
-            if request.url.host == "141.76.18.84":
+            if request.url.host == "1.1.1.1":
                 return httpx.Response(302, headers={"Location": "http://127.0.0.1:8000/secret"})
             return httpx.Response(200, text="internal")
 
         client = endpoints.http_client()
         client._transport = httpx.MockTransport(handler)
         with self.assertRaises(endpoints.EndpointNotAllowed):
-            client.get("https://141.76.18.84/v1/models")
+            client.get("https://1.1.1.1/v1/models")
 
 
 if __name__ == "__main__":
