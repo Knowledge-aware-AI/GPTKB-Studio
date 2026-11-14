@@ -1,4 +1,6 @@
-A branch that includes expansion on generic concepts (WIP).
+A branch that drops the distinction between NEs/generic concepts/literals, and just distinguishes concepts from literals. It expands on all concepts, which makes the process slower, but also more general.
+
+Further minor tweaks on performance:
 
 Model requests have a **total wall-clock deadline per attempt**, not just a
 socket inactivity timeout: 300 seconds by default (`request_timeout_seconds`),
@@ -12,5 +14,4 @@ the total time for all attempts can exceed one deadline.
 Relation disambiguation and initial concept disambiguation size their batches
 to at least the configured worker count. A 50-thread run can therefore issue
 up to 50 requests concurrently in those stages when enough independent work
-is ready. Smaller thread settings remain the concurrency limit. Stages still
-wait for their current batch to finish before advancing.
+is ready. Smaller thread settings remain the concurrency limit. 
