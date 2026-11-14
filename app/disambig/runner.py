@@ -57,6 +57,7 @@ from app import endpoints, reasoning
 from app.heartbeat import Heartbeat
 from app.llm_errors import ContextWindowExceeded, context_window_error, cut_off_error
 from app.redact import redactor
+from app.request_deadline import deadline_reason
 from app.disambig import prompts as P
 from app.disambig import store as S
 from app.disambig.embeddings import EmbeddingClient, VectorIndex, cluster_labels
@@ -220,7 +221,8 @@ class LLMClient:
             if key not in self.endpoints:
                 timeout = config.request_timeout_seconds
                 self.endpoints[key] = Endpoint(url, api_key, OpenAI(
-                    base_url=url, api_key=api_key, timeout=timeout, max_retries=0, http_client=endpoints.http_client()))
+                    base_url=url, api_key=api_key, timeout=timeout, max_retries=0,
+                    http_client=endpoints.http_client(total_timeout=timeout)))
             self.role_endpoint[role] = self.endpoints[key]
         self.rate_limiter = RequestRateLimiter(config.max_requests_per_minute)
         self.throttle = ModelThrottle(log, enabled=config.pacing)
@@ -351,7 +353,7 @@ class LLMClient:
                 if isinstance(exc, RateLimitError):
                     reason = f"rate limit hit{self._rate_limit_detail(exc)}"
                 else:
-                    reason = f"{type(exc).__name__}: {str(exc)[:160]}"
+                    reason = deadline_reason(exc) or f"{type(exc).__name__}: {str(exc)[:160]}"
                 if attempt > max_retries:
                     self.log(
                         f"{ROLE_NAMES[role]} request to {self.model_label(role)} failed ({reason}); "
@@ -1182,8 +1184,9 @@ class DisambiguatedKBCRunner:
             else:
                 selected.append(by_label[first][0])
 
-        for start in range(0, len(selected), self.config.chunk_size):
-            self._cd1_chunk(selected[start : start + self.config.chunk_size])
+        batch_size = max(self.config.chunk_size, self.config.nthreads)
+        for start in range(0, len(selected), batch_size):
+            self._cd1_chunk(selected[start : start + batch_size])
         return True
 
     def _cd1_chunk(self, triples: list[dict[str, Any]]) -> None:
@@ -1469,8 +1472,9 @@ class DisambiguatedKBCRunner:
                 keys.add(key)
                 selected.append(triple)
 
-        for start in range(0, len(selected), self.config.chunk_size):
-            chunk = selected[start : start + self.config.chunk_size]
+        batch_size = max(self.config.chunk_size, self.config.nthreads)
+        for start in range(0, len(selected), batch_size):
+            chunk = selected[start : start + batch_size]
             self._current(f"Relation disambiguation: {', '.join(t['predicate_label'] for t in chunk[:3])}")
             neighbor_ids = self.predicate_index.search(
                 self.embedder.embed([t["predicate_label"] for t in chunk]), self.config.num_candidates

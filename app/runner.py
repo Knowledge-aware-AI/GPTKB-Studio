@@ -21,6 +21,7 @@ from urllib.parse import quote
 from openai import OpenAI, RateLimitError
 
 from app import endpoints
+from app.request_deadline import deadline_reason
 from app.redact import redactor
 from app.heartbeat import Heartbeat
 from app.llm_errors import ContextWindowExceeded, context_window_error
@@ -596,7 +597,8 @@ class LocalKBCRunner:
             base_url=config.llm_url,
             api_key=config.api_key,
             timeout=client_timeout,
-            http_client=endpoints.http_client(),
+            http_client=endpoints.http_client(total_timeout=client_timeout),
+            max_retries=0,
         )
         self.rate_limiter = RequestRateLimiter(config.max_requests_per_minute)
         self.usage = UsageCounter(run_dir / "usage.json")
@@ -946,7 +948,7 @@ class LocalKBCRunner:
                     raise too_long from exc  # the same prompt fails again: no retry
                 attempt += 1
                 self.usage.record_retry(role, isinstance(exc, RateLimitError))
-                reason = f"{type(exc).__name__}: {str(exc)[:160]}"
+                reason = deadline_reason(exc) or f"{type(exc).__name__}: {str(exc)[:160]}"
                 if attempt > max_retries:
                     self._log(f"LLM request failed ({reason}); no retries left (tried {max_retries + 1} times).",
                               level="warning")

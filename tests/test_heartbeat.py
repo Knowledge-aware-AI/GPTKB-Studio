@@ -25,7 +25,7 @@ class HeartbeatTest(unittest.TestCase):
             self.beat.check(start + 61)
         self.assertEqual(self.lines, [("info",
             "Still working (CD: 40 objects): 2 CD requests to Qwen/Qwen3.8-27B waiting for an answer, "
-            "the oldest for 1m 01s (timeout after 5m 00s); 512 triples to disambiguate.")])
+            "the oldest for 1m 01s (total request deadline 5m 00s); 512 triples to disambiguate.")])
 
     def test_status_line_repeats_only_while_quiet(self):
         start = time.monotonic()
@@ -43,7 +43,7 @@ class HeartbeatTest(unittest.TestCase):
             self.beat.check(start + 150)
         warnings = [m for level, m in self.lines if level == "warning"]
         self.assertEqual(warnings, ["Elicitation request to google/gemma-4-26B-A4B-it has had no answer for 2m 01s; "
-                                    "it will be cancelled and retried after 5m 00s."])
+                                    "this attempt has a total request deadline of 5m 00s."])
 
     def test_paused_run_stays_silent(self):
         self.paused = True

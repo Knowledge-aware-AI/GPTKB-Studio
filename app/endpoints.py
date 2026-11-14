@@ -82,6 +82,10 @@ def _check_request(request: httpx.Request) -> None:
     check_url(str(request.url))
 
 
-def http_client() -> httpx.Client:
+def http_client(total_timeout: float | None = None) -> httpx.Client:
     """An HTTP client for the OpenAI SDK that checks every request it sends."""
+    if total_timeout is not None:
+        from app.request_deadline import DeadlineTransport
+        # Validation is inside the cancellable deadline in this transport.
+        return DefaultHttpxClient(transport=DeadlineTransport(total_timeout, check_url), trust_env=False)
     return DefaultHttpxClient(event_hooks={"request": [_check_request]})

@@ -106,7 +106,7 @@ class Heartbeat:
             for request in slow:
                 request.warned = True
         for request in slow:
-            retry = (f"; it will be cancelled and retried after {format_age(request.timeout)}"
+            retry = (f"; this attempt has a total request deadline of {format_age(request.timeout)}"
                      if request.timeout else "")
             self._log(f"{request.task} request to {request.model} has had no answer for "
                       f"{format_age(now - request.started)}{retry}.", "warning")
@@ -127,7 +127,7 @@ class Heartbeat:
             age = (f", the oldest for {format_age(now - oldest)}" if len(items) > 1
                    else f" for {format_age(now - oldest)}")
             timeout = items[0].timeout
-            limit = f" (timeout after {format_age(timeout)})" if timeout else ""
+            limit = f" (total request deadline {format_age(timeout)})" if timeout else ""
             parts.append(f"{count} to {model} waiting for an answer{age}{limit}")
         if not parts:
             parts.append("no request is waiting for an answer")

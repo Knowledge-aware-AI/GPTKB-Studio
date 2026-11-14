@@ -20,6 +20,8 @@ from typing import Callable
 
 import numpy as np
 from openai import OpenAI
+from app import endpoints
+from app.request_deadline import deadline_reason
 
 from app.heartbeat import Heartbeat
 
@@ -42,7 +44,8 @@ class EmbeddingClient:
         log: Callable[[str, str], None],
         heartbeat: Heartbeat | None = None,
     ) -> None:
-        self.client = OpenAI(base_url=base_url, api_key=api_key, timeout=REQUEST_TIMEOUT_SECONDS, max_retries=0)
+        self.client = OpenAI(base_url=base_url, api_key=api_key, timeout=REQUEST_TIMEOUT_SECONDS, max_retries=0,
+                             http_client=endpoints.http_client(total_timeout=REQUEST_TIMEOUT_SECONDS))
         self.model = model
         self.connection = connection
         self.stop_event = stop_event
@@ -104,7 +107,7 @@ class EmbeddingClient:
                     raise
                 delay = min(60.0, 2**attempt) + random.uniform(0, 1)
                 self.log(
-                    f"Embedding request failed ({type(exc).__name__}: {str(exc)[:160]}); retrying in {delay:.1f}s.",
+                    f"Embedding request failed ({deadline_reason(exc) or type(exc).__name__ + ': ' + str(exc)[:160]}); retrying in {delay:.1f}s.",
                     "warning",
                 )
                 deadline = time.monotonic() + delay
